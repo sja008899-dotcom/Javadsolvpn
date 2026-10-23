@@ -1,0 +1,6 @@
+{
+  "name": "Javadsolvpn",
+  "description": "Complete, autonomous Android VPN client with automatic public configuration discovery, private encrypted repository, and intelligent connection failover.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

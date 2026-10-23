@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Javadsolvpn</string>
+    <string name="vpn_channel_name">Javadsolvpn Service</string>
+    <string name="vpn_channel_desc">Active VPN connection status notification</string>
+    <string name="vpn_connected_title">Javadsolvpn متصل است</string>
+    <string name="vpn_connecting_title">در حال برقراری اتصال…</string>
+    <string name="vpn_disconnected_title">اتصال قطع است</string>
+    <string name="vpn_action_disconnect">قطع اتصال</string>
+</resources>

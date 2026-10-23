@@ -1,0 +1,913 @@
+# JAVADSOLVPN — ULTIMATE AUTONOMOUS VPN APP DEVELOPMENT PROMPT
+## A Complete, Professional, Cross-Platform Android and iOS VPN Application
+
+You are an autonomous senior product engineering team consisting of a mobile architect, VPN protocol engineer, Android engineer, iOS engineer, networking specialist, security engineer, backend engineer, UI/UX designer, and QA automation engineer.
+
+Your mission is to research, design, implement, test, and deliver a real, production-oriented mobile VPN application named **Javadsolvpn**.
+
+Do not merely explain how to build it. Do not return only a plan, prototype, design, or code snippets. Build the actual product using the tools, coding environments, agents, terminals, documentation, build systems, and deployment capabilities available to you.
+
+Make reasonable technical decisions independently. Research uncertain or time-sensitive requirements using official, current documentation before implementation. If parallel agents are available, use them for independent research, security auditing, implementation, and testing, then integrate their work into one coherent application.
+
+Do not ask me to choose a programming language, framework, database, UI toolkit, or VPN engine. Select the best technically feasible approach after comparing the options.
+
+Do not assume that a cross-platform UI framework, a WebView, or a visual connection animation can replace a real native VPN implementation.
+
+---
+
+# 1. PRODUCT IDENTITY AND OBJECTIVE
+
+**Product name:** Javadsolvpn
+
+**Platforms:**
+- Android phones and tablets.
+- iPhone and iPad.
+- A shared product design and consistent user experience across both platforms.
+
+**Primary objective:**
+
+Create an elegant, reliable, intelligent VPN client that automatically discovers publicly available connection configurations, validates and organizes them, maintains a secure local configuration repository, selects suitable candidates, and establishes a real VPN connection with as little user effort as possible.
+
+The application should help users access an unrestricted internet connection where lawful and technically possible, including networks that block or interfere with common VPN connections.
+
+It must intelligently select among supported protocols and connection transports instead of relying on a single connection method or a fixed list of hard-coded servers.
+
+The product must prioritize:
+
+1. Genuine connectivity.
+2. Connection reliability.
+3. Privacy and security.
+4. Autonomous recovery.
+5. Low resource consumption.
+6. Ease of use.
+7. A distinctive premium interface.
+8. Compatibility with real Android and iOS platform requirements.
+
+Do not promise that every public configuration will work, that unrestricted connectivity is possible on every network, or that all discovered servers are free, safe, anonymous, or reliable.
+
+The product must remain useful when some public sources, protocols, servers, or network transports fail.
+
+# 2. MANDATORY INITIAL RESEARCH
+
+Before choosing the architecture, investigate the current state of the following:
+
+- Android's official VPN service APIs, permission workflow, network routing, foreground execution, and lifecycle restrictions.
+- Apple's Network Extension APIs, Packet Tunnel Provider architecture, required entitlements, supported deployment models, signing requirements, and current App Store VPN policies.
+- Maintained open-source networking engines that can be legally embedded into Android and iOS applications.
+- Cross-platform UI approaches and the native integration each would require.
+- Current support for VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, WireGuard, and other useful protocols.
+- Compatibility of protocol transports and security options across the chosen engine and both platforms.
+- Secure local configuration storage, encrypted persistence, and key management.
+- Current build, testing, code-signing, and distribution requirements.
+- Licensing obligations for all bundled engines, libraries, and dependencies.
+
+Start with official documentation and maintained project repositories.
+
+Useful primary research starting points include:
+
+Android VPN documentation:
+https://developer.android.com/develop/connectivity/vpn
+
+Apple Packet Tunnel Provider:
+https://developer.apple.com/documentation/networkextension/packet-tunnel-provider
+
+Apple Network Extension entitlements:
+https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.networking.networkextension
+
+Apple App Review Guidelines:
+https://developer.apple.com/app-store/review/guidelines/
+
+sing-box documentation:
+https://sing-box.sagernet.org/
+
+Xray-core repository:
+https://github.com/XTLS/Xray-core
+
+These are starting points for research, not instructions to use one particular engine. Check current maintenance status, licensing, feature support, native compatibility, and implementation complexity before selecting any dependency.
+
+Create a concise architecture decision record, then continue directly into development. Do not stop after reporting the research findings.
+
+# 3. REAL NATIVE VPN ENGINE
+
+Build a genuine device-level VPN application, not a proxy-themed interface.
+
+The selected architecture must provide a real network tunnel on Android and iOS.
+
+On Android, implement and correctly manage the native VPN service using the official system APIs or a maintained engine that correctly integrates with them.
+
+On iOS, implement the appropriate supported Network Extension architecture and Packet Tunnel Provider integration for the selected engine.
+
+Use native Kotlin/Java and Swift/Objective-C components where necessary, even when a shared cross-platform interface is used.
+
+The final architecture may share application logic, models, networking, and interface components, but it must not compromise native VPN functionality.
+
+Requirements:
+
+- Create the virtual tunnel interface.
+- Route device traffic according to the selected routing policy.
+- Correctly process incoming and outgoing packets.
+- Manage the underlying encrypted connection to the selected remote endpoint.
+- Track actual engine and operating-system connection states.
+- React to permission denial, network changes, revocation, unexpected disconnects, and process lifecycle events.
+- Release resources correctly when switching or stopping a connection.
+- Avoid overlapping or competing tunnel sessions.
+- Support IPv4 and IPv6 according to actual engine capabilities.
+- Integrate DNS handling according to the selected engine and platform capabilities.
+- Provide sensible MTU and routing configuration.
+- Prevent false connection-success indications.
+
+**A successful method call is not proof of a successful tunnel.** Confirm the connection through authoritative native engine or operating-system state, and test actual traffic routing wherever possible.
+
+Never simulate connectivity, fake a public IP change, or mark a connection successful merely because a configuration was found.
+
+The application must not require root access for ordinary VPN functionality.
+
+# 4. BROAD PROTOCOL AND TRANSPORT SUPPORT
+
+Design a modular connection engine capable of using multiple genuine VPN and proxy protocols, subject to real engine and platform support.
+
+Evaluate and implement the most useful compatible subset of the following:
+
+### Core protocols
+
+- VLESS.
+- VMess.
+- Trojan.
+- Shadowsocks.
+- Shadowsocks 2022, where supported by the selected implementation.
+- Hysteria2.
+- TUIC.
+- WireGuard.
+- Other well-maintained and compatible protocols that materially improve connectivity.
+
+Evaluate additional compatible connection types, including SOCKS5, HTTP CONNECT, and SSH-based proxying, where their integration provides meaningful value.
+
+A SOCKS or HTTP proxy must not be represented as a complete device-wide VPN unless the application actually routes device traffic through an appropriate tunnel implementation.
+
+### Transport and connection options
+
+Evaluate support for the relevant combinations of:
+
+- TCP.
+- TLS.
+- WebSocket.
+- gRPC.
+- HTTP Upgrade.
+- XHTTP or compatible HTTP-based transports.
+- QUIC.
+- UDP relay.
+- HTTP/2.
+- Supported HTTP/3 or QUIC-based transports.
+- Protocol-supported obfuscation.
+- VLESS REALITY, where supported.
+- Protocol-specific authentication and transport options.
+
+Do not assume that all protocols work with all transports. Generate only combinations permitted by the selected engine and configuration schema.
+
+Support protocol-specific connection parameters such as SNI, ALPN, public keys, flow settings, WebSocket paths, service names, and supported obfuscation parameters, where applicable.
+
+Treat these as configurable protocol fields, not universal options.
+
+Build an extensible adapter architecture so supported engines or transports can be upgraded without rewriting the complete application.
+
+If a requested protocol is incompatible with iOS, unsupported by the engine, or blocked by licensing or platform constraints, document the precise limitation and implement the closest reliable alternative.
+
+Do not advertise an unsupported protocol as working.
+
+# 5. AUTOMATIC CONFIGURATION DISCOVERY ENGINE
+
+Create an autonomous discovery subsystem that finds and collects potentially usable public configurations.
+
+The discovery subsystem should support a configurable registry of public sources, including:
+
+- Public GitHub repositories.
+- Raw files from public repositories.
+- Appropriate public CDN mirrors such as jsDelivr.
+- Public configuration collections and indexes.
+- Public subscription links provided by the user.
+- Other reputable publicly accessible sources discovered during ongoing research.
+- Public Telegram pages where access is lawful and available without bypassing authentication or private-channel restrictions.
+
+Research sources rather than relying on a permanently hard-coded handful of endpoints.
+
+The source registry must allow sources to be enabled, disabled, updated, prioritized, tested, and removed.
+
+Store operational metadata such as:
+
+- Source identifier.
+- Source type.
+- Last successful fetch.
+- Last attempted fetch.
+- Sanitized source status.
+- Last error category.
+- Source priority.
+- Applicable format information.
+
+Never execute scripts, binaries, arbitrary code, or instructions contained in downloaded source content.
+
+### Discovery workflow
+
+The system must:
+
+1. Check whether local cached candidates remain available.
+2. Fetch enabled sources with bounded concurrency.
+3. Apply separate timeouts and response-size limits.
+4. Handle failed HTTP requests, redirects, rate limits, and unavailable services.
+5. Extract supported configuration links and formats.
+6. Decode supported encoded configuration formats safely.
+7. Parse candidates independently.
+8. Validate required fields and supported parameters.
+9. Reject malformed configurations.
+10. Remove duplicate candidates.
+11. Perform appropriate non-invasive reachability checks.
+12. Categorize and rank validated candidates.
+13. Persist suitable candidates in the local repository.
+14. Attempt candidates using the bounded connection strategy.
+15. Refresh failed sources later without stopping a working VPN session.
+16. Use valid cached candidates if source discovery temporarily fails.
+
+A bad response from one source must never crash the application or prevent results from other sources being processed.
+
+Do not consider a server trustworthy simply because it appears in a public GitHub repository or is returned by a public subscription.
+
+Treat every third-party configuration as untrusted until it passes validation. Even a valid configuration can point to a malicious or unreliable server.
+
+# 6. PRIVATE, ENCRYPTED IN-APP CONFIGURATION REPOSITORY
+
+The application must maintain its own persistent configuration repository on the device.
+
+This is a core feature, not an optional future enhancement.
+
+Create an organized, searchable local repository that survives application restarts, network outages, and temporary source failures.
+
+### Repository functions
+
+- Store validated connection profiles.
+- Store imported subscription definitions.
+- Store safe metadata about the origin of each profile.
+- Store supported protocol and transport information.
+- Store verified country metadata when available.
+- Record last successful connection time.
+- Record recent connection success or failure.
+- Record measured connection-establishment duration.
+- Maintain candidate priority and optional user favorites.
+- Identify stale or repeatedly failing configurations.
+- Deduplicate configurations using a suitable secure fingerprint or normalized representation.
+- Refresh public configurations when appropriate.
+- Mark expired or unusable entries.
+- Remove stale entries according to retention rules.
+- Preserve useful working configurations when public sources disappear.
+- Offer manual refresh and repository cleanup.
+- Let the user inspect and remove stored profiles.
+- Support repository export and import through a secure and explicit user action.
+
+### Security of the local repository
+
+- Use platform-appropriate secure storage and encryption.
+- Use Android Keystore or an appropriate Apple Keychain/cryptographic storage mechanism for protecting key material.
+- Never embed encryption keys in source code.
+- Keep secrets out of ordinary unprotected preferences, diagnostic logs, analytics, and crash reports.
+- Avoid storing unnecessary credentials.
+- Minimize retention of sensitive information.
+- Protect exported configurations and warn users that export files can contain secrets.
+- Do not upload private configurations to an external service unless explicitly necessary and authorized by the user.
+
+Use local storage as the primary repository so the application does not depend on a remote database to retrieve previously discovered configurations.
+
+An optional backend may distribute source-registry updates or non-sensitive operational metadata. It must not become an unnecessary central point of failure for the VPN client.
+
+### Configuration repository interface
+
+Create a dedicated repository screen with:
+
+- Search.
+- Protocol filters.
+- Country filters based on verified metadata.
+- Favorites.
+- Recently working profiles.
+- Failed or stale profiles.
+- Sorting by measured performance.
+- Source details.
+- Last update timestamps.
+- Safe import and export.
+- Duplicate cleanup.
+- Individual and bulk deletion.
+- Automatic refresh controls.
+
+Never expose raw UUIDs, private keys, passwords, subscription tokens, or full connection URLs in ordinary repository cards.
+
+Provide a deliberate reveal or copy action only where a user explicitly needs to inspect a sensitive item, with appropriate safeguards.
+
+# 7. INTELLIGENT AUTOMATIC CONNECTION
+
+The main screen must provide a prominent one-tap connection experience.
+
+Where the user has enabled automatic connection, the application should autonomously:
+
+1. Inspect the actual VPN status.
+2. Determine whether connectivity is available.
+3. Read usable entries from the local repository.
+4. Refresh sources when appropriate.
+5. Identify eligible candidates.
+6. Rank candidates using meaningful criteria.
+7. Try the best candidates within configured time and retry limits.
+8. Confirm actual native tunnel state.
+9. Update the UI and connection statistics.
+10. Reuse valid repository entries for future sessions.
+
+Use a connection coordinator to ensure that only one discovery or connection workflow owns the current operation.
+
+Never start multiple competing VPN sessions.
+
+### Autoconnect settings
+
+Provide user-controlled settings for:
+
+- Auto-connect when the app opens.
+- Auto-connect when the device restarts, where supported and permitted.
+- Reconnect after an unexpected interruption.
+- Connect using a previously successful profile.
+- Switch to another candidate when the active candidate fails.
+- Refresh public configurations periodically when practical and platform-compliant.
+- Start with Wi-Fi, mobile data, or either network, subject to platform capabilities and user settings.
+
+Auto-connect behavior must be transparent, configurable, and bounded. Do not silently enable it without user consent.
+
+During the first setup, clearly explain that public third-party servers may observe connection metadata and that their trustworthiness cannot be guaranteed.
+
+After the user explicitly enables a setting, minimize unnecessary prompts while complying with operating-system authorization requirements.
+
+Respect Android and iOS background-execution restrictions. Do not claim that the application can silently start a system VPN in any situation without required permissions or platform support.
+
+# 8. INTELLIGENT CANDIDATE SELECTION AND FAILOVER
+
+Build an explainable ranking system based on measured results rather than invented scores.
+
+Candidate selection may consider:
+
+- Parser and schema validity.
+- Supported protocol and transport combinations.
+- Reachability checks.
+- Actual connection-establishment time.
+- Recent successful tunnel establishment.
+- Recent verified connectivity tests.
+- Failure history.
+- Configuration age.
+- Source health metadata.
+- Optional user preferences.
+
+Distinguish:
+
+- Host reachable.
+- Port reachable.
+- Protocol handshake succeeded.
+- VPN engine reports connected.
+- Actual traffic routing verified.
+
+These are separate states and must not be conflated.
+
+Where practical, perform bounded tests of connectivity, DNS resolution, and traffic routing after connection. Distinguish genuine measured results from unverified metadata.
+
+Never fabricate latency, throughput, country, health, speed, security, or success-rate figures.
+
+### Failure and retry behavior
+
+Set configurable sensible defaults, such as:
+
+- Per-source network timeout.
+- Per-candidate connection timeout.
+- Maximum number of candidates attempted per automatic session.
+- Maximum source retries per discovery cycle.
+- Retry cooldown.
+- Repository retention and refresh intervals.
+
+Use bounded retries and exponential backoff where appropriate.
+
+If a candidate fails:
+
+1. Record a sanitized failure category.
+2. Clean up its resources.
+3. Confirm that the previous attempt is no longer competing with the next attempt.
+4. Try another eligible candidate.
+5. Stop when a verified connection succeeds or the configured limit is reached.
+
+If cleanup cannot be confirmed, do not blindly launch competing connection attempts.
+
+Prevent late or stale callbacks from overwriting the state of a newer connection session.
+
+When every candidate fails, explain the problem and provide a visible retry action.
+
+Do not run infinite background loops or continuously hammer public servers.
+
+### Public configuration limits
+
+Public configurations may disappear at any moment, require credentials, stop responding, reach traffic limits, or be blocked.
+
+The application must handle these conditions honestly. Do not imply that automatic discovery guarantees a stable free connection.
+
+# 9. CONNECTION METHODS FOR RESTRICTED OR UNRELIABLE NETWORKS
+
+Design an intelligent connectivity strategy that can adapt to different network environments using the genuine capabilities of the selected engine.
+
+Evaluate supported alternatives across multiple protocols and transports instead of assuming that one standard connection will work everywhere.
+
+Where available and compatible, consider:
+
+- Multiple protocol families.
+- TCP and UDP-based connection alternatives.
+- Supported TLS and HTTP-based transports.
+- Protocol-supported obfuscation.
+- Alternative endpoints for the same provider.
+- Alternative DNS strategies.
+- IPv4/IPv6 compatibility.
+- MTU adjustments.
+- Network-change detection.
+- Switching away from a recently failing candidate.
+- Rechecking connectivity after captive-portal or network changes.
+- Retrying a previously successful profile when it becomes available again.
+
+Do not add meaningless toggles or pretend to support transport combinations that the engine cannot actually use.
+
+Do not implement exploits, unauthorized access to third-party systems, or mechanisms that compromise other users' devices. Focus on legitimate protocol interoperability, privacy, and resilient connectivity.
+
+Never disable TLS or certificate validation globally as a shortcut for making unreliable connections work.
+
+# 10. PROFESSIONAL AND DISTINCTIVE USER INTERFACE
+
+Create an exceptionally polished interface with a recognizable identity of its own.
+
+The visual standard should be comparable to a premium modern consumer networking application.
+
+Do not produce a generic template with only a name and color changed.
+
+### Visual identity
+
+Use an original and consistent design language:
+
+- Deep navy and near-black backgrounds.
+- Electric blue, cyan, violet, or carefully selected accent colors.
+- Subtle, restrained glow effects.
+- Sophisticated card surfaces.
+- High-quality typography.
+- Carefully composed icons.
+- Elegant spacing.
+- Smooth but efficient transitions.
+- Clear status hierarchy.
+- Excellent contrast and accessibility.
+- High-quality light and dark themes if feasible.
+- Adaptive layouts for smaller and larger screens.
+
+Avoid excessive glow, crowded panels, unnecessary graphs, fake terminal displays, and decorative elements that reduce usability.
+
+Use original Javadsolvpn branding and create a coherent logo and app icon.
+
+Keep the experience professional, fast, distinctive, and easy for a nontechnical user.
+
+### Home screen
+
+The home screen must include:
+
+- A large, immediately understandable connect/disconnect control.
+- Actual native connection status.
+- The current friendly server label.
+- The selected protocol or connection category, when useful.
+- Actual elapsed connection time.
+- Real traffic counters.
+- A measured connection latency where it can be measured accurately.
+- A clear discovery-progress indicator.
+- Relevant quick actions.
+- Access to the full configuration repository.
+- A clean disconnected or offline state.
+
+Use subtle motion to communicate real state transitions, never as a substitute for actual connectivity.
+
+### Full navigation and toolbar system
+
+Build a complete mobile navigation experience with a professionally designed bottom navigation bar and contextual top toolbar.
+
+Suggested primary navigation:
+
+1. **خانه** — Home and connection controls.
+2. **سرورها** — Saved profiles, candidates, filters, and favorites.
+3. **هوشمند** — Discovery, automatic selection, and connectivity diagnostics.
+4. **فعالیت** — Connection history, real traffic statistics, and sanitized events.
+5. **تنظیمات** — Privacy, automation, appearance, networking, and application settings.
+
+Design the navigation labels and icons to suit both Android and iOS conventions.
+
+Use appropriate platform-native gestures and navigation behavior.
+
+The top toolbar should adapt to context and may include:
+
+- Product mark and app title.
+- Current state.
+- Search action.
+- Notifications or relevant status indicators.
+- Repository refresh.
+- Overflow menu for contextual actions.
+
+Do not crowd the main toolbar with every available feature. Organize less frequently used actions in clearly structured submenus.
+
+### Professional quick actions
+
+Add useful shortcuts where appropriate:
+
+- Connect automatically.
+- Disconnect.
+- Refresh configuration sources.
+- Open the local repository.
+- View connection details.
+- Run a safe connectivity check.
+- Open diagnostics.
+- Switch light/dark/automatic theme.
+- Manage favorites.
+- Open privacy information.
+
+Ensure every visible control has a real implementation and correct state handling.
+
+### Screen inventory
+
+Build the following screens:
+
+1. Welcome and first-run privacy explanation.
+2. VPN permissions and connection setup.
+3. Main connection dashboard.
+4. Automatic discovery and candidate-selection progress.
+5. Local encrypted configuration repository.
+6. Profile details and supported connection settings.
+7. Manual import and subscription management.
+8. Favorites and recent profiles.
+9. Connection history.
+10. Measured performance and network diagnostics.
+11. DNS and routing diagnostics where supported.
+12. Automation and retry settings.
+13. Notifications and appearance settings.
+14. Privacy and secure-storage information.
+15. Application information and version screen.
+16. Error recovery and troubleshooting.
+17. Offline fallback screen.
+18. Optional advanced networking settings.
+
+Support right-to-left Persian throughout the application. Use natural Persian interface text and a reliable Persian font, such as Vazirmatn, where appropriate.
+
+Provide future-ready localization architecture for English and additional languages.
+
+Do not use machine-generated random labels, malformed Persian, or exposed raw server endpoints in the ordinary user interface.
+
+# 11. LIVE CONNECTION STATISTICS
+
+Display accurate, clearly defined measurements:
+
+- Actual connection state.
+- Connection duration.
+- Bytes received.
+- Bytes sent.
+- Measured establishment time.
+- Measured latency where meaningful.
+- Recent connection outcome.
+- Active friendly profile label.
+- Protocol and transport, where appropriate.
+
+Update the UI efficiently without continuous unnecessary polling.
+
+Distinguish actual tunnel traffic counters from estimates or application-only traffic counters.
+
+Never invent download speeds, upload speeds, total data usage, countries, encryption levels, or security scores.
+
+If a measurement is unavailable, display an honest unavailable state instead of a fabricated value.
+
+# 12. DNS, IP ROUTING, AND PROTECTION FEATURES
+
+Provide configurable networking features where supported by the actual selected engine and operating system.
+
+Investigate:
+
+- DNS routing through the selected tunnel.
+- IPv4 and IPv6 handling.
+- Routing policies.
+- Optional per-application routing on platforms that permit it.
+- Connectivity checks.
+- DNS leak testing.
+- Traffic-routing verification.
+- Kill-switch or block-without-VPN behavior.
+- Safe reconnection after network transitions.
+
+Do not show a kill-switch toggle unless the behavior is genuinely implemented, tested, and supported by the target platform.
+
+Do not claim full leak protection simply because a VPN status indicator is connected.
+
+If a particular platform or entitlement prevents a feature from working as expected, make that limitation visible in the relevant settings and documentation.
+
+# 13. PRIVACY, SECURITY, AND RESPONSIBLE DATA HANDLING
+
+Treat privacy as a core architectural requirement.
+
+The application should not require account registration to connect unless a demonstrable product requirement makes it necessary.
+
+Default to minimal data collection.
+
+Requirements:
+
+- Never log full configuration links or credentials.
+- Do not collect browsing histories or traffic payloads.
+- Never embed backend secrets in client code.
+- Use secure TLS communication.
+- Validate all imported profiles and network responses.
+- Restrict native bridges and interprocess communication.
+- Minimize permissions.
+- Redact diagnostic data.
+- Protect local key material.
+- Use appropriate cryptographic primitives instead of homemade encryption.
+- Document all third-party services that receive connection-related metadata.
+- Do not send every discovered server IP to a third-party geolocation service without an explicit privacy justification.
+- Avoid analytics that disclose configuration secrets or sensitive network activity.
+- Do not sell or disclose user browsing information.
+- Provide a clear privacy policy consistent with the actual implementation.
+
+A public VPN endpoint is operated by someone else. Warn users that its operator may be able to observe some metadata or traffic characteristics, depending on the protocol and end-to-end encryption used by applications.
+
+Distinguish encryption between the device and VPN endpoint from HTTPS encryption between the user and destination websites.
+
+Never promise complete anonymity, absolute security, zero leaks, or protection against every form of network surveillance.
+
+# 14. COUNTRY LABELS AND SERVER IDENTITY
+
+Provide clean, friendly labels such as:
+
+- `Javad 1 • اتصال آمریکا`
+- `Javad 2 • اتصال ژاپن`
+- `Javad 3 • اتصال آلمان`
+
+Use Persian country names in the localized interface.
+
+Only display a country when supported by trustworthy source metadata or a documented geolocation result.
+
+Never infer the country from a server name, hostname, configuration remark, or arbitrary IP prefix.
+
+If the country is unknown, use a generic label such as `Javad 1 • اتصال خودکار`.
+
+The number identifies the candidate order for the current session rather than a permanent identity.
+
+Never expose raw endpoints or private configuration fields in ordinary server cards.
+
+# 15. AUTOMATIC RECOVERY AND RELIABLE STATE MANAGEMENT
+
+Implement explicit connection states:
+
+- Idle.
+- Checking network.
+- Searching for candidates.
+- Validating configurations.
+- Connecting.
+- Connected.
+- Switching candidate.
+- Reconnecting.
+- Disconnecting.
+- Recoverable error.
+- Fatal initialization error.
+
+Every asynchronous operation must have a clear completion, cancellation, or timeout path.
+
+Prevent:
+
+- Infinite loading indicators.
+- Infinite retry loops.
+- Overlapping connection workflows.
+- Overlapping native engine processes.
+- Stale status events overwriting current state.
+- Accidental disconnection when the UI is rebuilt.
+- Secret exposure in error reports.
+- Automatic reconnection after a deliberate user disconnect, unless the user explicitly chose such a policy.
+
+Handle source failures, parser errors, invalid candidates, permission denial, plugin or engine errors, network changes, background interruptions, operating-system revocation, and application process recreation.
+
+All user-facing errors must be concise and localized into natural Persian.
+
+Suggested messages:
+
+- `در حال یافتن اتصال مناسب...`
+- `در حال بررسی گزینه‌های اتصال...`
+- `اتصال برقرار نشد؛ در حال بررسی گزینه بعدی...`
+- `هیچ کانفیگ قابل‌استفاده‌ای پیدا نشد.`
+- `دسترسی VPN تأیید نشده است.`
+- `شبکه در دسترس نیست؛ اتصال اینترنت را بررسی کن.`
+- `قطع اتصال تأیید نشد؛ وضعیت VPN را بررسی کن.`
+- `تلاش مجدد`
+- `اتصال با موفقیت برقرار شد.`
+
+Use the final message only after the application has confirmed the genuine connected state.
+
+# 16. FULL FEATURE SET
+
+Implement at least the following practical features, prioritizing actual operation over quantity:
+
+1. Native Android VPN tunneling.
+2. Native iOS VPN tunneling.
+3. Automatic configuration-source discovery.
+4. Multi-source registry.
+5. Parsing and validation of supported formats.
+6. Duplicate configuration removal.
+7. Persistent encrypted local repository.
+8. Automatic selection of a suitable candidate.
+9. Bounded failover across candidates.
+10. Safe retry and cancellation.
+11. Real native status synchronization.
+12. Connection history.
+13. Favorites.
+14. Search and protocol filtering.
+15. Secure profile import.
+16. Secure profile export.
+17. Subscription refresh.
+18. Automatic refresh of public source metadata.
+19. Optional auto-connect.
+20. Automatic recovery after recoverable failures.
+21. Actual connection duration.
+22. Real upload/download counters where available.
+23. Measured latency where meaningful.
+24. DNS diagnostics where supported.
+25. Routing verification where feasible.
+26. IPv4/IPv6 configuration.
+27. Network transition monitoring.
+28. Advanced networking settings.
+29. Persian localization.
+30. English localization architecture.
+31. Dark and light themes.
+32. Accessible responsive layouts.
+33. Secure storage and secret redaction.
+34. Local fallback interface when network access is unavailable.
+35. Version and build diagnostics.
+36. Safe cleanup and resource disposal.
+37. Unit and integration tests.
+38. Actual Android installation artifacts.
+39. An iOS build suitable for testing when the required Apple environment and authorization exist.
+40. Complete source code and build documentation.
+
+Only mark a feature as implemented once the relevant behavior exists and has been tested to a reasonable extent.
+
+# 17. CROSS-PLATFORM IMPLEMENTATION AND BUILD REQUIREMENTS
+
+Choose the implementation stack after evaluating the real technical constraints.
+
+The architecture may use a shared UI or codebase where appropriate, combined with native platform-specific components.
+
+Do not force every part of the VPN engine into one shared-language module when the platform requires native integration.
+
+Do not use a WebView as a substitute for a real native VPN. A WebView may be used for specific shared interfaces only if native VPN state, permissions, lifecycle, and security remain correctly implemented.
+
+### Android deliverables
+
+- Complete Android project.
+- Correct package identifier.
+- Supported minimum Android version selected based on the actual engine.
+- Correct VPN service registration and lifecycle.
+- Correct permissions for the supported versions.
+- Appropriate foreground notification behavior.
+- Debug APK where build tooling permits.
+- Release App Bundle where possible.
+- Build instructions.
+- Automated test results.
+- Signing instructions for release distribution.
+
+### iOS deliverables
+
+- Complete iOS project, including the required extension and native integration.
+- Correct bundle identifiers and entitlements.
+- Appropriate VPN profile management.
+- Real Packet Tunnel Provider implementation when required by the selected protocol architecture.
+- Required provisioning and signing configuration.
+- Native connection-state management.
+- Test build or IPA where the available signing environment permits.
+- Build instructions and entitlement requirements.
+- An explicit report of any Apple account, capability approval, provisioning profile, signing certificate, or physical-device requirement.
+
+Do not invent certificates, entitlements, credentials, or successful device tests.
+
+If an authorized Apple developer account or required entitlement is unavailable, implement the source and configuration as fully as possible and clearly identify the external prerequisite. Do not claim that the iOS VPN extension is installable or production-ready without the necessary signing and authorization.
+
+# 18. AUTOMATED QUALITY ASSURANCE
+
+Create meaningful automated tests for:
+
+- Source discovery.
+- HTTP failures and timeouts.
+- Rate limiting.
+- Empty source responses.
+- Invalid configuration formats.
+- Encoding and decoding errors.
+- Unsupported protocol combinations.
+- Duplicate removal.
+- Local repository persistence.
+- Encrypted storage behavior.
+- Repository migration where applicable.
+- Failed connection attempts.
+- Successful candidate failover.
+- Bounded retries.
+- Cancellation.
+- Late or stale native events.
+- Permission denial.
+- Unexpected native disconnect.
+- Backgrounding and resume.
+- Duplicate connection actions.
+- Resource cleanup.
+- Data redaction.
+- Malformed imports.
+- Unauthorized repository or administration access.
+- Cross-platform UI state consistency.
+- Build packaging.
+- Core connection-state correctness.
+
+Run formatting, static analysis, unit tests, integration tests, and relevant end-to-end tests using the available build environment.
+
+Test real native builds rather than relying solely on previews or mocked components.
+
+When a real public VPN configuration is available and usable, perform an actual connection test. Verify routing and DNS behavior to the extent the test environment permits.
+
+Never claim that an unexecuted test passed.
+
+Label test results clearly:
+
+- Passed.
+- Failed.
+- Written but not executed.
+- Blocked by a missing credential, device, entitlement, or test endpoint.
+
+# 19. PERFORMANCE AND MAINTAINABILITY
+
+Optimize for mobile devices and unstable network conditions.
+
+- Limit concurrent downloads.
+- Bound memory consumption.
+- Avoid unnecessary background work.
+- Cache reusable discovery results.
+- Do not refresh every source constantly.
+- Use efficient UI state updates.
+- Dispose of network resources correctly.
+- Make database changes transactional where appropriate.
+- Handle application upgrades and schema migrations.
+- Avoid dependencies that are unmaintained or needlessly large.
+- Pin and audit significant dependencies.
+- Maintain license compliance.
+- Keep modules organized and easy to upgrade.
+
+The app must remain responsive while scanning sources or testing candidates.
+
+# 20. DELIVERY AND DISTRIBUTION
+
+Complete as much of the real implementation as the available development environment permits.
+
+Provide:
+
+1. Complete editable source code.
+2. Android project.
+3. iOS project.
+4. Native VPN integration.
+5. Local repository implementation.
+6. All tests.
+7. Build configuration.
+8. Dependency and license information.
+9. README with exact instructions.
+10. Architecture decision record.
+11. Privacy policy draft consistent with actual behavior.
+12. Troubleshooting guide.
+13. Configuration-source registry documentation.
+14. Example environment configuration containing placeholders only.
+15. Actual test report.
+16. Actual build artifacts where available.
+
+Build the Android APK and/or AAB whenever the environment supports it.
+
+Build the iOS application or IPA when the necessary Apple tooling, signing configuration, and VPN entitlements are available.
+
+If an available tool can generate and publish installable builds, use it. If credentials or permissions require an explicit user action, identify that exact step without pretending it has already happened.
+
+Provide actual download links to artifacts that exist. Provide an actual repository or workspace location for the source code.
+
+Do not return only snippets or an incomplete collection of disconnected files.
+
+# 21. REQUIRED FINAL REPORT
+
+At the end, provide a concise, factual report containing:
+
+- Implemented features.
+- Selected architecture and why.
+- Actual supported protocols and transports.
+- Configuration discovery sources and repository behavior.
+- Connection and failure-recovery behavior.
+- Android build status and download link.
+- iOS build status and download link, if available.
+- Source-code location.
+- Build and test results.
+- Remaining Apple entitlements, signing, or distribution requirements.
+- Known limitations and unverified security claims.
+
+Never fabricate a download link, server, country, successful tunnel, test result, signing capability, or deployment.
+
+If one platform is blocked, finish every independent component that can be implemented and provide the precise blocker and remaining procedure.
+
+## FINAL DIRECTIVE
+
+Begin by researching the current official documentation and evaluating the actual cross-platform VPN-engine options. Then choose the architecture, implement the product, run the available tests, build the applications, and deliver the working source and artifacts.
+
+Build **Javadsolvpn as a complete, real, professionally designed Android and iOS VPN application**, with automatic public configuration discovery, a secure local repository, intelligent connection selection, broad genuine protocol support, reliable recovery, and a distinctive premium interface.
+
+Do not stop at a proposal, mockup, tutorial, or partially functional demonstration. Do not claim completion for anything that has not actually been built and verified.
