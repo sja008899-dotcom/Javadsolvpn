@@ -115,7 +115,12 @@ class MainActivity : ComponentActivity() {
                                         requestVpnAndConnect(server)
                                     }
                                 )
-                                2 -> DiscoveryScreen(viewModel = viewModel)
+                                2 -> DiscoveryScreen(
+                                    viewModel = viewModel,
+                                    onStartVpnPermissionFlow = { server ->
+                                        requestVpnAndConnect(server)
+                                    }
+                                )
                                 3 -> ActivityScreen(viewModel = viewModel)
                                 4 -> SettingsScreen(viewModel = viewModel)
                             }

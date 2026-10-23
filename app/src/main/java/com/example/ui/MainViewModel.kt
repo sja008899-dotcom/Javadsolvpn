@@ -24,12 +24,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getInstance(application)
     private val repository = VpnRepository(db)
+    val discoveryEngine = com.example.data.discovery.ServerDiscoveryEngine(db)
+    val coreEngine = com.example.vpn.core.DefaultVpnCoreEngine.instance
 
-    // VPN Service Status
+    // VPN Service and Core Status
     val vpnStatus: StateFlow<VpnStatus> = JavadVpnService.vpnStatus
+    val coreState: StateFlow<com.example.vpn.core.VpnCoreState> = coreEngine.coreState
+    val engineStats: StateFlow<com.example.vpn.core.EngineStats> = coreEngine.engineStats
     val activeServer: StateFlow<ServerConfigEntity?> = JavadVpnService.activeServer
     val trafficStats: StateFlow<TrafficStats> = JavadVpnService.trafficStats
     val errorMessage: StateFlow<String?> = JavadVpnService.errorMessage
+    val discoveryProgress = discoveryEngine.progress
 
     // Navigation and Filtering
     val currentTab = MutableStateFlow(0) // 0: Home, 1: Servers, 2: Smart Hub, 3: Activity, 4: Settings
@@ -135,6 +140,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repository.deleteServer(server.id)
             if (selectedServer.value?.id == server.id) {
                 selectedServer.value = null
+            }
+        }
+    }
+
+    fun runDiscovery(targetProtocol: String = "ALL") {
+        viewModelScope.launch {
+            isDiscovering.value = true
+            try {
+                val inserted = discoveryEngine.runDiscovery(targetProtocol)
+                bannerMessage.value = if (inserted > 0) {
+                    "$inserted کانفیگ جدید با موفقیت کشف و به انبار اضافه شد."
+                } else {
+                    "کاوش تکمیل شد. تمام کانفیگ‌های فعال هم‌اکنون در انبار موجودند."
+                }
+            } catch (e: Exception) {
+                bannerMessage.value = "خطا در کاوش: ${e.localizedMessage}"
+            } finally {
+                isDiscovering.value = false
             }
         }
     }

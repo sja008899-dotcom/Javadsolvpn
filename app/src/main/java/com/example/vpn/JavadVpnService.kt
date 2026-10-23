@@ -121,21 +121,25 @@ class JavadVpnService : VpnService() {
             _activeServer.value = server
 
             try {
-                // Prepare genuine VPN Tunnel using Android VpnService Builder
-                val builder = Builder()
-                    .setSession("Javadsolvpn - ${server.name}")
-                    .addAddress("10.8.0.2", 24)
-                    .addRoute("0.0.0.0", 0)
-                    .setMtu(1500)
-                    .setBlocking(false)
-
-                // Add configured DNS
+                val coreEngine = com.example.vpn.core.DefaultVpnCoreEngine.instance
                 val dnsList = when (dns) {
                     "8.8.8.8" -> listOf("8.8.8.8", "8.8.4.4")
                     "9.9.9.9" -> listOf("9.9.9.9", "149.112.112.112")
                     else -> listOf("1.1.1.1", "1.0.0.1")
                 }
-                dnsList.forEach { builder.addDnsServer(it) }
+                val tunnelConfig = com.example.vpn.core.TunnelConfig(server = server, dnsServers = dnsList)
+                val paramsResult = coreEngine.prepareSession(tunnelConfig)
+                val params = paramsResult.getOrThrow()
+
+                // Prepare genuine VPN Tunnel using Android VpnService Builder
+                val builder = Builder()
+                    .setSession(params.sessionName)
+                    .addAddress(params.virtualIp, params.routingPrefix)
+                    .addRoute("0.0.0.0", 0)
+                    .setMtu(params.mtu)
+                    .setBlocking(false)
+
+                params.dnsServers.forEach { builder.addDnsServer(it) }
 
                 vpnInterface?.close()
                 val pfd = builder.establish()
@@ -154,6 +158,7 @@ class JavadVpnService : VpnService() {
                 lastBytesInSample = 0L
                 lastBytesOutSample = 0L
 
+                coreEngine.establishSession(params)
                 _vpnStatus.value = VpnStatus.CONNECTED
                 db.serverDao().recordSuccess(server.id)
 
@@ -161,7 +166,7 @@ class JavadVpnService : VpnService() {
                     NOTIFICATION_ID,
                     buildNotification(
                         "متصل به ${server.name}",
-                        "پروتکل: ${server.protocol.uppercase()} • پینگ: ${if (server.pingMs > 0) "${server.pingMs}ms" else "تأیید شد"}"
+                        "پروتکل: ${params.protocol} • پینگ: ${if (server.pingMs > 0) "${server.pingMs}ms" else "تأیید شد"}"
                     )
                 )
 
@@ -228,7 +233,7 @@ class JavadVpnService : VpnService() {
                 val speedInKbps = (deltaIn * 8.0) / 1024.0
                 val speedOutKbps = (deltaOut * 8.0) / 1024.0
 
-                _trafficStats.value = TrafficStats(
+                val stats = TrafficStats(
                     bytesIn = totalBytesIn,
                     bytesOut = totalBytesOut,
                     downloadSpeedKbps = speedInKbps,
@@ -236,11 +241,22 @@ class JavadVpnService : VpnService() {
                     durationSeconds = durationSec,
                     pingMs = _activeServer.value?.pingMs ?: 45L
                 )
+                _trafficStats.value = stats
+                com.example.vpn.core.DefaultVpnCoreEngine.instance.updateStats(
+                    com.example.vpn.core.EngineStats(
+                        totalBytesIn = totalBytesIn,
+                        totalBytesOut = totalBytesOut,
+                        currentDownloadKbps = speedInKbps,
+                        currentUploadKbps = speedOutKbps,
+                        activeConnections = 1
+                    )
+                )
             }
         }
     }
 
     private fun terminateVpn(reason: String) {
+        com.example.vpn.core.DefaultVpnCoreEngine.instance.terminateSession(reason)
         val server = _activeServer.value
         val duration = if (connectTimeMillis > 0) (System.currentTimeMillis() - connectTimeMillis) / 1000 else 0L
 

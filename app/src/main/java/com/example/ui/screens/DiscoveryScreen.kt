@@ -1,7 +1,16 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,18 +24,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
@@ -43,33 +57,43 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.local.DiscoverySourceEntity
+import com.example.data.local.ServerConfigEntity
 import com.example.ui.MainViewModel
+import com.example.ui.components.ServerCard
 import com.example.ui.theme.CyberBlue
 import com.example.ui.theme.CyberBorder
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.CyberDarkBackground
 import com.example.ui.theme.CyberDarkCard
 import com.example.ui.theme.CyberNeonGreen
+import com.example.ui.theme.CyberViolet
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
 @Composable
 fun DiscoveryScreen(
     viewModel: MainViewModel,
+    onStartVpnPermissionFlow: ((ServerConfigEntity?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val sources by viewModel.allSources.collectAsStateWithLifecycle()
-    val allServers by viewModel.allServers.collectAsStateWithLifecycle()
-    val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
+    val discoveryProgress by viewModel.discoveryProgress.collectAsStateWithLifecycle()
     val isTestingPing by viewModel.isTestingPing.collectAsStateWithLifecycle()
+    val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
+    val selectedServer by viewModel.selectedServer.collectAsStateWithLifecycle()
+    val vpnStatus by viewModel.vpnStatus.collectAsStateWithLifecycle()
 
+    var targetDiscoveryProtocol by remember { mutableStateOf("ALL") }
     var showImportDialog by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
 
@@ -93,19 +117,19 @@ fun DiscoveryScreen(
             ) {
                 Column {
                     Text(
-                        text = "هاب هوشمند و کشف کانفیگ‌ها",
+                        text = "موتور کشف و اسکن سرورها",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = TextPrimary
                     )
                     Text(
-                        text = "گردآوری، اعتبارسنجی و انبار رمزنگاری‌شده محلی",
-                        fontSize = 12.sp,
-                        color = TextSecondary
+                        text = "Server Discovery & Realtime Candidate Crawler",
+                        fontSize = 11.sp,
+                        color = CyberCyan
                     )
                 }
                 Icon(
-                    imageVector = Icons.Default.Hub,
+                    imageVector = Icons.Default.Radar,
                     contentDescription = null,
                     tint = CyberCyan,
                     modifier = Modifier.size(28.dp)
@@ -113,76 +137,49 @@ fun DiscoveryScreen(
             }
         }
 
-        // Action Buttons Card
+        // Animated Radar & Live Discovery Console
         item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(CyberDarkCard)
-                    .border(1.dp, CyberBorder, RoundedCornerShape(18.dp))
-                    .padding(16.dp)
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            DiscoveryRadarCard(
+                progress = discoveryProgress,
+                selectedProtocol = targetDiscoveryProtocol,
+                onProtocolChange = { targetDiscoveryProtocol = it },
+                onStartScan = { viewModel.runDiscovery(targetDiscoveryProtocol) },
+                onPingAll = { viewModel.pingAll() },
+                isTestingPing = isTestingPing,
+                onManualImport = { showImportDialog = true }
+            )
+        }
+
+        // Live Discovered Highlight (if any)
+        if (discoveryProgress.latestDiscovered != null) {
+            item {
+                Column {
                     Text(
-                        text = "عملیات خودکار هاب",
+                        text = "آخرین نود کشف‌شده",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = CyberCyan
+                        color = CyberNeonGreen
                     )
-
-                    Button(
-                        onClick = { viewModel.refreshDiscovery() },
-                        enabled = !isDiscovering,
-                        colors = ButtonDefaults.buttonColors(containerColor = CyberBlue),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("refresh_discovery_button")
-                    ) {
-                        if (isDiscovering) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text("در حال دریافت و اعتبارسنجی…", fontSize = 13.sp)
-                        } else {
-                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("بروزرسانی کلی هاب (${sources.count { it.isEnabled }} منبع فعال)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { viewModel.pingAll() },
-                            enabled = !isTestingPing,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(18.dp), tint = CyberNeonGreen)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("تست پینگ همه", fontSize = 12.sp, color = TextPrimary)
-                        }
-
-                        OutlinedButton(
-                            onClick = { showImportDialog = true },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(18.dp), tint = CyberCyan)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("وارد کردن دستی", fontSize = 12.sp, color = TextPrimary)
-                        }
-                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val discovered = discoveryProgress.latestDiscovered!!
+                    ServerCard(
+                        server = discovered,
+                        isSelected = selectedServer?.id == discovered.id,
+                        isConnected = activeServer?.id == discovered.id,
+                        onSelect = {
+                            viewModel.selectServer(discovered)
+                            onStartVpnPermissionFlow?.invoke(discovered)
+                        },
+                        onToggleFavorite = { viewModel.toggleFavorite(discovered) },
+                        onDelete = { viewModel.deleteServer(discovered) }
+                    )
                 }
             }
+        }
+
+        // Live Log Terminal
+        item {
+            LiveLogConsole(logs = discoveryProgress.recentLogs)
         }
 
         // Sources Registry Header
@@ -233,7 +230,7 @@ fun DiscoveryScreen(
             text = {
                 Column {
                     Text(
-                        text = "می‌توانید لینک‌های vless, vmess, trojan, ss, openvpn یا سابسکریپشن base64 را جای‌گذاری کنید:",
+                        text = "می‌توانید لینک‌های vless, vmess, trojan, ss, openvpn یا سابسکریپشن base64 را وارد کنید:",
                         fontSize = 12.sp,
                         color = TextSecondary
                     )
@@ -289,7 +286,7 @@ fun DiscoveryScreen(
                         value = newSourceName,
                         onValueChange = { newSourceName = it },
                         label = { Text("نام منبع") },
-                        placeholder = { Text("کانفیگ‌های وارکر / سابسکریپشن") },
+                        placeholder = { Text("هاب تلگرام یا کانفیگ‌های جدید") },
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = CyberDarkCard,
@@ -340,6 +337,309 @@ fun DiscoveryScreen(
             },
             containerColor = CyberDarkCard
         )
+    }
+}
+
+@Composable
+private fun DiscoveryRadarCard(
+    progress: com.example.data.discovery.DiscoveryProgress,
+    selectedProtocol: String,
+    onProtocolChange: (String) -> Unit,
+    onStartScan: () -> Unit,
+    onPingAll: () -> Unit,
+    isTestingPing: Boolean,
+    onManualImport: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "radar")
+    val sweepAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "sweep"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(CyberDarkCard)
+            .border(1.dp, CyberBorder, RoundedCornerShape(18.dp))
+            .padding(16.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF07101E))
+                            .border(1.dp, CyberBorder, CircleShape)
+                    ) {
+                        Canvas(modifier = Modifier.size(38.dp)) {
+                            drawCircle(
+                                color = CyberCyan.copy(alpha = 0.3f),
+                                style = Stroke(width = 1.dp.toPx())
+                            )
+                            drawCircle(
+                                color = CyberCyan.copy(alpha = 0.6f),
+                                style = Stroke(width = 1.5.dp.toPx())
+                            )
+                            if (progress.isScanning) {
+                                drawArc(
+                                    brush = Brush.sweepGradient(listOf(Color.Transparent, CyberCyan)),
+                                    startAngle = sweepAngle,
+                                    sweepAngle = 60f,
+                                    useCenter = true
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.Default.Radar,
+                            contentDescription = null,
+                            tint = if (progress.isScanning) CyberCyan else TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column {
+                        Text(
+                            text = if (progress.isScanning) "اسکن زنده در حال اجرا…" else "آماده برای کشف و اسکن",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (progress.isScanning) CyberCyan else TextPrimary
+                        )
+                        Text(
+                            text = if (progress.currentSource.isNotBlank()) progress.currentSource else "همه کانال‌ها و سابسکریپشن‌های فعال",
+                            fontSize = 11.sp,
+                            color = TextSecondary,
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                if (progress.isScanning) {
+                    Text(
+                        text = "${progress.sourcesProcessed}/${progress.totalSources}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberCyan
+                    )
+                }
+            }
+
+            // Stat Metrics Grid
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                MetricTile(
+                    title = "خام کشف‌شده",
+                    value = "${progress.totalFoundRaw}",
+                    color = CyberCyan,
+                    modifier = Modifier.weight(1f)
+                )
+                MetricTile(
+                    title = "نودهای معتبر",
+                    value = "${progress.totalValidated}",
+                    color = CyberNeonGreen,
+                    modifier = Modifier.weight(1f)
+                )
+                MetricTile(
+                    title = "تکراری‌های حذف‌شده",
+                    value = "${progress.totalDuplicatesRemoved}",
+                    color = Color(0xFFFFAB00),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            // Protocol Selector Chips
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val protoList = listOf("ALL" to "همه", "VLESS" to "VLESS", "VMESS" to "VMess", "TROJAN" to "Trojan", "SS" to "Shadowsocks", "OPENVPN" to "OpenVPN")
+                protoList.forEach { (code, label) ->
+                    val isSel = selectedProtocol == code
+                    FilterChip(
+                        selected = isSel,
+                        onClick = { onProtocolChange(code) },
+                        label = { Text(label, fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = CyberCyan.copy(alpha = 0.2f),
+                            selectedLabelColor = CyberCyan,
+                            containerColor = Color(0xFF07101E),
+                            labelColor = TextSecondary
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = isSel,
+                            borderColor = if (isSel) CyberCyan else CyberBorder
+                        )
+                    )
+                }
+            }
+
+            // Main Scan Action
+            Button(
+                onClick = onStartScan,
+                enabled = !progress.isScanning,
+                colors = ButtonDefaults.buttonColors(containerColor = CyberBlue),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("start_server_discovery_button")
+            ) {
+                if (progress.isScanning) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("در حال خزش و اعتبارسنجی سرورها…", fontSize = 13.sp)
+                } else {
+                    Icon(Icons.Default.Radar, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("اسکن و کشف خودکار سرورها", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // Secondary Quick Actions
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onPingAll,
+                    enabled = !isTestingPing,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp), tint = CyberNeonGreen)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("تست پینگ همگانی", fontSize = 11.sp, color = TextPrimary)
+                }
+
+                OutlinedButton(
+                    onClick = onManualImport,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(16.dp), tint = CyberCyan)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("وارد کردن دستی", fontSize = 11.sp, color = TextPrimary)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MetricTile(
+    title: String,
+    value: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF07101E))
+            .padding(vertical = 8.dp, horizontal = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(text = value, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = color)
+            Text(text = title, fontSize = 10.sp, color = TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun LiveLogConsole(logs: List<com.example.data.discovery.DiscoveryLogEntry>) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFF050B14))
+            .border(1.dp, CyberBorder, RoundedCornerShape(14.dp))
+            .padding(12.dp)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Terminal, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "کنسول رخدادهای زنده کشف",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                }
+                Text(text = "LIVE STREAM", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberNeonGreen)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (logs.isEmpty()) {
+                Text(
+                    text = "منتظر آغاز اسکن… برای شروع بر روی 'اسکن و کشف خودکار سرورها' ضربه بزنید.",
+                    fontSize = 11.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(vertical = 6.dp)
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    logs.take(6).forEach { entry ->
+                        Row(verticalAlignment = Alignment.Top) {
+                            Text(
+                                text = "${entry.timestamp} ",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = TextSecondary
+                            )
+                            val logColor = when (entry.level) {
+                                "SUCCESS" -> CyberNeonGreen
+                                "WARN" -> Color(0xFFFFD600)
+                                "ERROR" -> Color(0xFFFF5252)
+                                else -> CyberCyan
+                            }
+                            Text(
+                                text = "[${entry.level}] ",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = logColor
+                            )
+                            Text(
+                                text = entry.message,
+                                fontSize = 11.sp,
+                                color = TextPrimary
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -1,8 +1,13 @@
 package com.example
 
+import com.example.data.local.ServerConfigEntity
 import com.example.data.parser.ConfigParser
 import com.example.data.parser.CountryDetector
 import com.example.vpn.TrafficStats
+import com.example.vpn.core.DefaultVpnCoreEngine
+import com.example.vpn.core.TunnelConfig
+import com.example.vpn.core.VpnCoreState
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -79,5 +84,40 @@ class ExampleUnitTest {
         assertEquals(2, list.size)
         assertEquals("vless", list[0].protocol)
         assertEquals("openvpn", list[1].protocol)
+    }
+
+    @Test
+    fun vpnCoreEngine_managesAdaptersAndSessionLifecycle() = runBlocking {
+        val engine = DefaultVpnCoreEngine()
+        val protocols = engine.getSupportedProtocols()
+        assertTrue(protocols.contains("VLESS"))
+        assertTrue(protocols.contains("TROJAN"))
+        assertTrue(protocols.contains("VMESS"))
+        assertTrue(protocols.contains("SS"))
+        assertTrue(protocols.contains("OPENVPN"))
+
+        val mockServer = ServerConfigEntity(
+            name = "Javad 1 • US",
+            protocol = "vless",
+            host = "us-east.javadsolvpn.net",
+            port = 443,
+            rawLink = "vless://9f4e45ab@us-east.javadsolvpn.net:443?security=reality",
+            countryCode = "US"
+        )
+
+        val config = TunnelConfig(server = mockServer)
+        val prepResult = engine.prepareSession(config)
+        assertTrue(prepResult.isSuccess)
+        val params = prepResult.getOrThrow()
+        assertEquals("VLESS", params.protocol)
+
+        val sessionResult = engine.establishSession(params)
+        assertTrue(sessionResult.isSuccess)
+        assertTrue(engine.coreState.value is VpnCoreState.Established)
+        assertNotNull(engine.activeSession.value)
+
+        val termResult = engine.terminateSession("User disconnect")
+        assertTrue(termResult.isSuccess)
+        assertTrue(engine.coreState.value is VpnCoreState.Idle)
     }
 }
