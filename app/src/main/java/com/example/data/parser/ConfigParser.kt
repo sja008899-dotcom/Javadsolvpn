@@ -105,7 +105,7 @@ object ConfigParser {
         val trimmed = content.trim()
         val result = mutableListOf<ServerConfigEntity>()
 
-        // 1. Try JSON Hub schema (v2ray array)
+        // 1. JSON schema (v2ray/v2rayNG/JSON export)
         if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
             try {
                 val json = JSONObject(trimmed)
@@ -123,10 +123,11 @@ object ConfigParser {
                     }
                     if (result.isNotEmpty()) return result
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            }
         }
 
-        // 2. Try Base64 Subscription decoding
+        // 2. Base64 subscription
         var textToParse = trimmed
         if (!trimmed.contains("\n") && !trimmed.contains("://") && trimmed.length > 20) {
             val decoded = decodeBase64(trimmed)
@@ -135,7 +136,7 @@ object ConfigParser {
             }
         }
 
-        // 3. Line by line parsing
+        // 3. Line-by-line parsing
         val lines = textToParse.lines()
         var index = startIndex
         for (rawLine in lines) {
@@ -147,7 +148,6 @@ object ConfigParser {
                 index++
             }
         }
-
         return result
     }
 
@@ -161,7 +161,7 @@ object ConfigParser {
                 trimmed.startsWith("ss://", ignoreCase = true) -> parseShadowsocks(trimmed, sourceUrl, orderIndex)
                 trimmed.startsWith("sstp://", ignoreCase = true) -> parseSstp(trimmed, sourceUrl, orderIndex)
                 trimmed.startsWith("socks://", ignoreCase = true) -> parseSocks(trimmed, sourceUrl, orderIndex)
-                else -> null // OpenVPN/SSTP is recorded as metadata only when needed; actual transport is handled by a compatible backend.
+                else -> null
             }
         } catch (_: Exception) {
             null
@@ -347,14 +347,13 @@ object ConfigParser {
 
     private fun parseSstp(link: String, sourceUrl: String, orderIndex: Int): ServerConfigEntity? {
         val parsed = parseUriManual(link) ?: return null
-        val protocol = "sstp"
         val country = CountryDetector.detect("${parsed.host} ${parsed.fragment}")
         val label = if (parsed.fragment.isNotBlank()) parsed.fragment else "اتصال ${country.nameFa}"
         val friendlyName = "Javad $orderIndex • $label"
 
         return ServerConfigEntity(
             name = friendlyName,
-            protocol = protocol,
+            protocol = "sstp",
             host = parsed.host,
             port = parsed.port,
             rawLink = link,
