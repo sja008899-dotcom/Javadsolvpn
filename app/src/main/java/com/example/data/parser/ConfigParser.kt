@@ -159,7 +159,9 @@ object ConfigParser {
                 trimmed.startsWith("vmess://", ignoreCase = true) -> parseVmess(trimmed, sourceUrl, orderIndex)
                 trimmed.startsWith("trojan://", ignoreCase = true) -> parseTrojan(trimmed, sourceUrl, orderIndex)
                 trimmed.startsWith("ss://", ignoreCase = true) -> parseShadowsocks(trimmed, sourceUrl, orderIndex)
-                else -> null // OpenVPN is explicitly discarded
+                trimmed.startsWith("sstp://", ignoreCase = true) -> parseSstp(trimmed, sourceUrl, orderIndex)
+                trimmed.startsWith("socks://", ignoreCase = true) -> parseSocks(trimmed, sourceUrl, orderIndex)
+                else -> null // OpenVPN/SSTP is recorded as metadata only when needed; actual transport is handled by a compatible backend.
             }
         } catch (_: Exception) {
             null
@@ -206,7 +208,9 @@ object ConfigParser {
             countryNameFa = country.nameFa,
             countryNameEn = country.nameEn,
             sourceUrl = sourceUrl,
-            isWorking = true
+            isWorking = false,
+            pingMs = -1L,
+            lastTestedTime = 0L
         )
     }
 
@@ -246,7 +250,9 @@ object ConfigParser {
             countryNameFa = country.nameFa,
             countryNameEn = country.nameEn,
             sourceUrl = sourceUrl,
-            isWorking = true
+            isWorking = false,
+            pingMs = -1L,
+            lastTestedTime = 0L
         )
     }
 
@@ -278,7 +284,9 @@ object ConfigParser {
             countryNameFa = country.nameFa,
             countryNameEn = country.nameEn,
             sourceUrl = sourceUrl,
-            isWorking = true
+            isWorking = false,
+            pingMs = -1L,
+            lastTestedTime = 0L
         )
     }
 
@@ -291,7 +299,6 @@ object ConfigParser {
         var methodAndPass = ""
 
         if (raw.contains("@")) {
-            // Format: ss://BASE64(method:password)@host:port or ss://method:password@host:port
             val userPart = raw.substringBefore("@")
             val endpointPart = raw.substringAfter("@")
             val decodedUser = decodeBase64(userPart)
@@ -300,7 +307,6 @@ object ConfigParser {
             host = h
             port = p
         } else {
-            // Entire link is base64: ss://BASE64(method:password@host:port)
             val decoded = decodeBase64(raw)
             if (decoded.contains("@")) {
                 val userPart = decoded.substringBefore("@")
@@ -312,7 +318,6 @@ object ConfigParser {
             }
         }
 
-        // Strictly reject invalid hosts (no 127.0.0.1 fallback)
         if (host.isBlank() || host == "127.0.0.1" || host == "localhost") {
             return null
         }
@@ -334,7 +339,61 @@ object ConfigParser {
             securityType = "cipher",
             transportType = "tcp",
             sourceUrl = sourceUrl,
-            isWorking = true
+            isWorking = false,
+            pingMs = -1L,
+            lastTestedTime = 0L
+        )
+    }
+
+    private fun parseSstp(link: String, sourceUrl: String, orderIndex: Int): ServerConfigEntity? {
+        val parsed = parseUriManual(link) ?: return null
+        val protocol = "sstp"
+        val country = CountryDetector.detect("${parsed.host} ${parsed.fragment}")
+        val label = if (parsed.fragment.isNotBlank()) parsed.fragment else "اتصال ${country.nameFa}"
+        val friendlyName = "Javad $orderIndex • $label"
+
+        return ServerConfigEntity(
+            name = friendlyName,
+            protocol = protocol,
+            host = parsed.host,
+            port = parsed.port,
+            rawLink = link,
+            uuidOrPassword = parsed.userInfo,
+            securityType = parsed.queryParams["security"] ?: "tls",
+            transportType = parsed.queryParams["type"] ?: parsed.queryParams["net"] ?: "tcp",
+            sni = parsed.queryParams["sni"] ?: parsed.queryParams["peer"] ?: "",
+            countryCode = country.code,
+            countryNameFa = country.nameFa,
+            countryNameEn = country.nameEn,
+            sourceUrl = sourceUrl,
+            isWorking = false,
+            pingMs = -1L,
+            lastTestedTime = 0L
+        )
+    }
+
+    private fun parseSocks(link: String, sourceUrl: String, orderIndex: Int): ServerConfigEntity? {
+        val parsed = parseUriManual(link) ?: return null
+        val country = CountryDetector.detect("${parsed.host} ${parsed.fragment}")
+        val label = if (parsed.fragment.isNotBlank()) parsed.fragment else "اتصال ${country.nameFa}"
+        val friendlyName = "Javad $orderIndex • $label"
+
+        return ServerConfigEntity(
+            name = friendlyName,
+            protocol = "socks",
+            host = parsed.host,
+            port = parsed.port,
+            rawLink = link,
+            uuidOrPassword = parsed.userInfo,
+            securityType = "none",
+            transportType = "tcp",
+            countryCode = country.code,
+            countryNameFa = country.nameFa,
+            countryNameEn = country.nameEn,
+            sourceUrl = sourceUrl,
+            isWorking = false,
+            pingMs = -1L,
+            lastTestedTime = 0L
         )
     }
 
