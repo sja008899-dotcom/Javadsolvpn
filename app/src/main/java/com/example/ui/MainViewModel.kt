@@ -15,7 +15,6 @@ import com.example.vpn.VpnStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -66,6 +65,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val connectionHistory: StateFlow<List<ConnectionHistoryEntity>> = repository.connectionHistory
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private fun isUsableServer(server: ServerConfigEntity?): Boolean {
+        return server != null && server.isWorking && server.pingMs > 0L
+    }
+
+    private fun bestAvailableServer(list: List<ServerConfigEntity>): ServerConfigEntity? {
+        return list
+            .filter { it.isWorking && it.pingMs > 0L }
+            .sortedWith(
+                compareBy<ServerConfigEntity> { !it.isFavorite }
+                    .thenBy { it.pingMs }
+                    .thenBy { it.failureCount }
+                    .thenBy { it.id }
+            )
+            .firstOrNull()
+    }
+
     // Filtered Servers
     val filteredServers: StateFlow<List<ServerConfigEntity>> = combine(
         allServers,
@@ -92,8 +107,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             allServers.collect { list ->
-                if (selectedServer.value == null && list.isNotEmpty()) {
-                    selectedServer.value = list.firstOrNull { it.isFavorite } ?: list.first()
+                val preferred = bestAvailableServer(list)
+                if (selectedServer.value == null && preferred != null) {
+                    selectedServer.value = preferred
+                } else if (selectedServer.value != null && !isUsableServer(selectedServer.value)) {
+                    selectedServer.value = preferred
                 }
             }
         }
@@ -105,9 +123,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun connect(context: Context, serverToConnect: ServerConfigEntity? = null) {
         val target = serverToConnect ?: selectedServer.value
-        if (target != null) {
-            selectedServer.value = target
-            JavadVpnService.startVpn(context, target.id, preferredDns.value)
+        val safeTarget = if (target != null && isUsableServer(target)) target else bestAvailableServer(allServers.value)
+        if (safeTarget != null) {
+            selectedServer.value = safeTarget
+            JavadVpnService.startVpn(context, safeTarget.id, preferredDns.value)
         } else {
             smartConnect(context)
         }
@@ -116,11 +135,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun smartConnect(context: Context) {
         viewModelScope.launch {
             val best = repository.getBestCandidate()
-            if (best != null) {
-                selectedServer.value = best
-                JavadVpnService.startVpn(context, best.id, preferredDns.value)
+            val safeBest = if (best != null && isUsableServer(best)) best else bestAvailableServer(allServers.value)
+            if (safeBest != null) {
+                selectedServer.value = safeBest
+                JavadVpnService.startVpn(context, safeBest.id, preferredDns.value)
             } else {
-                bannerMessage.value = "هیچ سروری برای اتصال یافت نشد. لطفاً از بخش هوشمند هاب را بروزرسانی کنید."
+                bannerMessage.value = "هیچ سروری برای اتصال معتبر یافت نشد. لطفاً ابتدا کانفیگ‌ها را بررسی یا مجدداً کشف کنید."
             }
         }
     }
