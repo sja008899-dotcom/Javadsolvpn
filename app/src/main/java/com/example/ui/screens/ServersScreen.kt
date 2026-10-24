@@ -93,7 +93,7 @@ fun ServersScreen(
                     color = TextPrimary
                 )
                 Text(
-                    text = "${allServers.size} کانفیگ موجود در انبار محلی",
+                    text = "${allServers.size} از ۱۲ نود در مخزن فعال",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )

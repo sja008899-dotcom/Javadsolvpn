@@ -200,9 +200,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val count = repository.importRawConfig(raw)
             bannerMessage.value = if (count > 0) {
-                "$count کانفیگ با موفقیت به انبار محلی اضافه شد."
+                "$count کانفیگ جدید به مخزن فعال اضافه شد (سقف مخزن: ۱۲ سرور)."
             } else {
-                "فرمت کانفیگ نامعتبر بود. لطفاً لینک vless, vmess, trojan, ss یا سابسکریپشن base64 وارد کنید."
+                "کانفیگ جدیدی اضافه نشد (ممکن است تکراری باشد، فرمت نامعتبر باشد یا سقف ۱۲ سرور تکمیل باشد)."
             }
         }
     }

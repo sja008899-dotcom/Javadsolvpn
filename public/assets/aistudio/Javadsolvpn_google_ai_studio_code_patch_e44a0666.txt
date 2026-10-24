@@ -1,0 +1,365 @@
+JAVADSOLVPN — کدهای پیشنهادی برای ارسال به Google AI Studio
+نسخه مبتنی بر بررسی فایل Javadsolvpn-main (1).zip
+
+مهم:
+این فایل یک بسته کد/دستور برای ادغام در پروژه است، نه ادعای آماده بودن APK نهایی. کدهای Room و محدودیت ظرفیت باید با نسخه Kotlin/Room پروژه تطبیق و build شوند. اصلاح اتصال واقعی Xray/V2Ray نیازمند بررسی API واقعی فایل app/libs/libv2ray.aar و آزمایش روی دستگاه است.
+
+============================================================
+A) یافته بسیار مهم: سرورهای نمونه ساختگی/تأییدنشده در JavadApplication.kt
+============================================================
+در JavadApplication.kt پنج ServerConfigEntity به‌صورت ثابت ساخته شده‌اند؛ نمونه‌هایی مثل:
+- us-east.javadsolvpn.net با کلید Reality پر از رقم 1 و shortId نمونه
+- de-fra.javadsolvpn.net با رمز نمونه
+- jp-tokyo.javadsolvpn.net
+- nl-ams.javadsolvpn.net
+- fi-hel.javadsolvpn.net
+
+این رکوردها با pingMs مثبت و isWorking=true وارد دیتابیس می‌شوند و دو مورد Favorite هم هستند. از روی کد، هیچ اثباتی وجود ندارد که این endpointها و credentialها واقعاً متعلق به سرور فعال باشند. آن‌ها می‌توانند در انتخاب خودکار مقدم شوند و دلیل مهم اتصال ناموفق باشند.
+
+کار لازم:
+1. بلوک initialServers که این پنج سرور را seed می‌کند، حذف شود؛ مگر اینکه مالک برنامه سرورهای واقعی و credentialهای معتبر را ارائه کرده باشد.
+2. منبع‌های دریافت کانفیگ (DiscoverySourceEntity) را می‌توان نگه داشت.
+3. هر رکورد جدیدِ parseشده باید با isWorking=false و pingMs=-1 ثبت شود. هرگز از روی نمونه بودن، باز بودن پورت یا مقدار ساختگی ping، آن را سالم علامت نزن.
+
+============================================================
+B) فایل جدید: ServerLimits.kt
+مسیر: app/src/main/java/com/example/data/local/ServerLimits.kt
+============================================================
+package com.example.data.local
+
+object ServerLimits {
+    const val MAX_ACTIVE_CONFIGS: Int = 12
+}
+
+============================================================
+C) فایل جدید: ConfigFingerprint.kt
+مسیر: app/src/main/java/com/example/data/local/ConfigFingerprint.kt
+============================================================
+package com.example.data.local
+
+import java.security.MessageDigest
+import java.util.Locale
+
+/**
+ * Fingerprint for deduplication only. Never log the input fields because they may contain secrets.
+ * Do not identify a server only by host:port: different credentials/transports may be valid.
+ */
+object ConfigFingerprint {
+    fun of(server: ServerConfigEntity): String {
+        val canonical = listOf(
+            server.protocol.trim().lowercase(Locale.ROOT),
+            server.host.trim().trim('[', ']').lowercase(Locale.ROOT),
+            server.port.toString(),
+            server.uuidOrPassword.trim(),
+            server.flow.trim(),
+            server.securityType.trim().lowercase(Locale.ROOT),
+            server.transportType.trim().lowercase(Locale.ROOT),
+            server.sni.trim().lowercase(Locale.ROOT),
+            server.publicKey.trim(),
+            server.shortId.trim(),
+            server.fingerprint.trim().lowercase(Locale.ROOT),
+            server.path.trim(),
+            server.serviceName.trim(),
+            server.alpn.trim(),
+            server.headerType.trim().lowercase(Locale.ROOT),
+            server.alterId.toString()
+        ).joinToString("\u001f")
+
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(canonical.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { byte -> "%02x".format(byte) }
+    }
+}
+
+============================================================
+D) اصلاح ServerDao.kt
+============================================================
+در ServerDao.kt این import را اضافه کن:
+import androidx.room.Transaction
+
+الف) این دو query را اضافه کن:
+
+@Query("SELECT * FROM server_configs")
+suspend fun getAllServersOnce(): List<ServerConfigEntity>
+
+@Query("SELECT COUNT(*) FROM server_configs")
+suspend fun getServerCountNow(): Int
+
+ب) متد فعلی getBestCandidate و getNextCandidate را جایگزین کن تا candidate فقط به‌علت isWorking=false رد نشود. isWorking باید نشان‌دهنده اتصال تونلی تأییدشده باشد؛ ping مثبت فقط endpoint reachability را نشان می‌دهد:
+
+@Query("""
+    SELECT * FROM server_configs
+    WHERE pingMs > 0
+    ORDER BY isWorking DESC, isFavorite DESC, pingMs ASC,
+             failureCount ASC, successCount DESC, id ASC
+    LIMIT 1
+""")
+suspend fun getBestCandidate(): ServerConfigEntity?
+
+@Query("""
+    SELECT * FROM server_configs
+    WHERE pingMs > 0 AND id != :excludeId
+    ORDER BY isWorking DESC, isFavorite DESC, pingMs ASC,
+             failureCount ASC, successCount DESC, id ASC
+    LIMIT 1
+""")
+suspend fun getNextCandidate(excludeId: Long): ServerConfigEntity?
+
+ج) متد فعلی trimToTopHealthy(100) را حذف کن و این متد را جایگزین کن. این query حداکثر تعداد رکوردهای جدول را به ۱۲ محدود می‌کند؛ محدودیت فقط در UI نیست:
+
+@Query("""
+    DELETE FROM server_configs
+    WHERE id NOT IN (
+        SELECT id FROM server_configs
+        ORDER BY
+            CASE WHEN isWorking = 1 AND pingMs > 0 THEN 0 ELSE 1 END ASC,
+            isFavorite DESC,
+            CASE WHEN pingMs > 0 THEN pingMs ELSE 999999 END ASC,
+            successCount DESC,
+            failureCount ASC,
+            lastTestedTime DESC,
+            id ASC
+        LIMIT :limit
+    )
+""")
+suspend fun trimToLimit(limit: Int = ServerLimits.MAX_ACTIVE_CONFIGS)
+
+د) این query را برای یافتن یک رکورد خرابِ قابل جایگزینی اضافه کن:
+
+@Query("""
+    SELECT id FROM server_configs
+    WHERE isWorking = 0 AND isFavorite = 0 AND isManual = 0
+    ORDER BY failureCount DESC, lastTestedTime ASC, id ASC
+    LIMIT 1
+""")
+suspend fun getReplaceableBrokenId(): Long?
+
+هـ) متد insertAll(servers: List<ServerConfigEntity>) فعلی را حذف کن تا مسیرهای جدید نتوانند سقف ۱۲تایی را ناخواسته دور بزنند. همه فراخوانی‌های آن باید به متدهای کنترل‌شده زیر مهاجرت کنند. insertServer را نگه دار چون متد داخلی این توابع است.
+
+و) متد زیر را داخل ServerDao اضافه کن:
+
+@Transaction
+suspend fun insertCapped(
+    servers: List<ServerConfigEntity>,
+    limit: Int = ServerLimits.MAX_ACTIVE_CONFIGS
+): Int {
+    require(limit in 1..ServerLimits.MAX_ACTIVE_CONFIGS) {
+        "Active server limit cannot exceed ${ServerLimits.MAX_ACTIVE_CONFIGS}"
+    }
+
+    // Also repairs a previously oversized database before new inserts.
+    trimToLimit(limit)
+
+    val seen = getAllServersOnce()
+        .mapTo(mutableSetOf()) { ConfigFingerprint.of(it) }
+
+    var count = getServerCountNow()
+    var insertedCount = 0
+
+    for (candidate in servers) {
+        if (count >= limit) break
+        val fingerprint = ConfigFingerprint.of(candidate)
+        if (!seen.add(fingerprint)) continue
+
+        // Parsed/imported configs are candidates, not verified working tunnels.
+        val unverified = candidate.copy(
+            isWorking = false,
+            pingMs = -1L,
+            lastTestedTime = 0L
+        )
+        val id = insertServer(unverified)
+        if (id != -1L) {
+            count++
+            insertedCount++
+        }
+    }
+    return insertedCount
+}
+
+ز) اگر می‌خواهی جایگزینی اتمیک داشته باشی، این helper فقط برای candidateای استفاده شود که قبلاً با هسته واقعی و عبور ترافیک تأیید شده است؛ ServerProber تنها برای این کار کافی نیست:
+
+@Transaction
+suspend fun insertVerifiedReplacingBroken(
+    candidate: ServerConfigEntity,
+    limit: Int = ServerLimits.MAX_ACTIVE_CONFIGS
+): Boolean {
+    require(limit in 1..ServerLimits.MAX_ACTIVE_CONFIGS)
+    trimToLimit(limit)
+
+    val existing = getAllServersOnce()
+    val candidateFingerprint = ConfigFingerprint.of(candidate)
+    if (existing.any {
+            it.rawLink == candidate.rawLink || ConfigFingerprint.of(it) == candidateFingerprint
+        }) return false
+
+    if (getServerCountNow() >= limit) {
+        val victimId = getReplaceableBrokenId() ?: return false
+        deleteServer(victimId)
+    }
+
+    // Contract: call this only after a real core/tunnel HTTP test passed.
+    val insertedId = insertServer(
+        candidate.copy(isWorking = true, lastTestedTime = System.currentTimeMillis())
+    )
+    if (insertedId == -1L) {
+        // Throwing causes a Room @Transaction to roll back the victim deletion.
+        error("Verified candidate insert conflicted; transaction must roll back")
+    }
+    return true
+}
+
+ح) اصلاح recordFailure: متد فعلی فقط failureCount را افزایش می‌دهد و سرور خراب را همچنان working نگه می‌دارد. این query را جایگزین کن:
+
+@Query("""
+    UPDATE server_configs
+    SET failureCount = failureCount + 1,
+        isWorking = 0,
+        pingMs = -1
+    WHERE id = :id
+""")
+suspend fun recordFailure(id: Long)
+
+اطمینان پیدا کن که recordSuccess فقط بعد از بررسی موفق تونل واقعی فراخوانی شود:
+
+@Query("UPDATE server_configs SET successCount = successCount + 1, isWorking = 1 WHERE id = :id")
+suspend fun recordSuccess(id: Long)
+
+============================================================
+E) اصلاح VpnRepository.kt
+============================================================
+۱. importRawConfig را به این منطق تغییر بده تا تعداد گزارش‌شده، تعداد واقعاً درج‌شده باشد:
+
+suspend fun importRawConfig(raw: String): Int = withContext(Dispatchers.IO) {
+    val parsed = ConfigParser.parsePayload(raw, "Manual Import")
+    val markedManual = parsed.map { it.copy(isManual = true, isWorking = false, pingMs = -1L) }
+    db.serverDao().insertCapped(markedManual)
+}
+
+۲. داخل refreshAllSources، این کد فعلی را حذف کن:
+    db.serverDao().insertAll(configs)
+    totalAdded += configs.size
+
+و با این جایگزین کن:
+    val inserted = db.serverDao().insertCapped(configs)
+    totalAdded += inserted
+    if (inserted > 0) successfulSources++
+
+تعداد دریافت‌شده را با تعداد ذخیره‌شده اشتباه نگیر. پیام منبع باید مثلاً «۵ کانفیگ جدید ذخیره شد از ۱۲۰ لینک استخراج‌شده» نشان دهد، نه اینکه همه را درج‌شده گزارش کند.
+
+۳. testLatency فعلی نباید مثبت بودن TCP را به معنای سالم بودن پروتکل/تونل تلقی کند. آن را به این شکل تغییر بده:
+
+suspend fun testLatency(server: ServerConfigEntity): Long = withContext(Dispatchers.IO) {
+    val ping = ServerProber.probe(server)
+    val now = System.currentTimeMillis()
+    if (ping > 0L) {
+        // Endpoint reachable only; preserve previous full-tunnel validation status.
+        db.serverDao().updatePing(server.id, ping, now)
+    } else {
+        // Endpoint unreachable. Do not let it be selected as the next candidate.
+        db.serverDao().updatePingAndStatus(server.id, -1L, false, now)
+    }
+    ping
+}
+
+۴. در testAllLatencies، خط trimToTopHealthy(100) را حذف کن. به‌جایش بنویس:
+    db.serverDao().trimToLimit(ServerLimits.MAX_ACTIVE_CONFIGS)
+
+۵. تمام مسیرهای افزودن کانفیگ در پروژه را پیدا کن. هیچ کدام از serverDao().insertAll(...) یا insertServer(...) نباید مستقیماً از Repository، DiscoveryEngine، UI یا Application برای واردکردن فهرست کانفیگ استفاده کنند. فقط توابع تراکنشی محدودشده مجازند.
+
+============================================================
+F) اصلاح ServerDiscoveryEngine.kt
+============================================================
+منطق فعلی seenFingerprints فقط برای اجرای فعلی است و اثر انگشت آن صرفاً protocol:host:port است. این کافی نیست.
+
+به‌جای:
+    val seenFingerprints = mutableSetOf<String>()
+    val existingServers = db.serverDao().getBestCandidate()
+
+استفاده کن از:
+    val seenFingerprints = db.serverDao().getAllServersOnce()
+        .mapTo(mutableSetOf()) { ConfigFingerprint.of(it) }
+
+و برای هر config:
+    val fingerprint = ConfigFingerprint.of(cfg)
+    if (seenFingerprints.add(fingerprint)) {
+        validUnique.add(cfg.copy(isWorking = false, pingMs = -1L, lastTestedTime = 0L))
+    } else {
+        duplicatesCount++
+    }
+
+ذخیره‌سازی را با:
+    val inserted = db.serverDao().insertCapped(validUnique)
+    totalInserted += inserted
+انجام بده، نه insertAll.
+
+اسکن نباید هزاران رکورد را ذخیره کند. اما به نکته زیر توجه کن: insertCapped به‌تنهایی تضمین نمی‌کند که ۱۲ کانفیگ زنده و قابل اتصال داشته باشی؛ فقط تعداد رکوردهای فعال را محدود می‌کند. برای رسیدن به ۱۲ کانفیگ واقعی، Discovery باید candidateها را به‌صورت موقت و خارج از جدول server_configs بررسی کند، و فقط پس از اثبات handshake و عبور درخواست HTTP از تونل آن‌ها را داخل ۱۲ مورد نهایی ثبت کند. به محض تأیید ۱۲ کانفیگ، اسکن متوقف شود.
+
+============================================================
+G) AppDatabase.kt: مهاجرت امن نسخه فعلی ۲ به ۳
+============================================================
+چون پروژه version = 2 دارد، محدودیت و بازنشانی وضعیت رکوردهای قدیمی باید برای دیتابیس‌های نصب‌شده قبلی هم اعمال شود.
+
+Import:
+import androidx.room.migration.Migration
+
+در companion object اضافه کن:
+private val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Old rows were often marked working without a real tunnel check.
+        db.execSQL("UPDATE server_configs SET isWorking = 0, pingMs = -1, lastTestedTime = 0")
+        // Keep at most 12 records; favorites/manual items are considered first.
+        db.execSQL("""
+            DELETE FROM server_configs
+            WHERE id NOT IN (
+                SELECT id FROM server_configs
+                ORDER BY isFavorite DESC, isManual DESC, createdAt DESC, id ASC
+                LIMIT 12
+            )
+        """.trimIndent())
+    }
+}
+
+تغییر annotation دیتابیس به:
+@Database(..., version = 3, exportSchema = false)
+
+و در Room.databaseBuilder(...):
+.addMigrations(MIGRATION_2_3)
+
+پروژه فعلاً fallbackToDestructiveMigration() دارد. بررسی کن مسیرهای migration مورد نیاز نسخه‌های نصب‌شده پوشش داده شوند؛ در غیر این صورت fallback می‌تواند داده‌های کاربر را حذف کند. بعد از تغییر، schema validation و upgrade از دیتابیس نسخه ۲ را واقعاً آزمایش کن.
+
+============================================================
+H) مشکل اتصال واقعی: این مورد با تغییر تعداد رکورد حل نمی‌شود
+============================================================
+در JavadVpnService.kt این خط وجود دارد:
+    builder.addDisallowedApplication(packageName)
+
+بنابراین درخواست OkHttp داخل verifyLiveInternet()، چون از UID خود همین برنامه است، می‌تواند از VPN مستثنا و از اینترنت مستقیم گوشی ارسال شود. این تست در شکل فعلی اثبات نمی‌کند که ترافیک از تونل عبور کرده است؛ ممکن است مثبت کاذب یا منفی کاذب ایجاد کند.
+
+نکته ایمنی فنی: این خط را کورکورانه حذف نکن؛ اگر سوکت‌های خروجی هسته protect نشده باشند، ترافیک سرور می‌تواند دوباره وارد TUN شود و loop ایجاد کند.
+
+از Google AI Studio بخواه:
+1. API واقعی callbackها و نسخه موجود در app/libs/libv2ray.aar را بررسی کند.
+2. مسیر protect سوکت‌های خروجی core را طبق API واقعی همان AAR پیاده کند.
+3. تست اتصال را طوری پیاده کند که درخواست آزمایشی قطعاً از outbound پروکسی عبور کند؛ نه از اینترنت مستقیم.
+4. اگر SDK امکان تست candidate بدون ساخت تونل یا بدون ایجاد loop را نمی‌دهد، معماری تست را با یک مسیر local SOCKS/HTTP موقت و outbound کنترل‌شده بازطراحی کند.
+5. فقط بعد از handshake واقعی و دریافت پاسخ معتبر از درخواست عبوری، recordSuccess و isWorking=true انجام شوند.
+6. به باز بودن TCP port اکتفا نکند: ServerProber فعلی نهایتاً endpoint reachability و تلاش TLS عادی را می‌سنجد؛ Reality و احراز هویت VLESS/VMess/Trojan/SS را اثبات نمی‌کند.
+
+همچنین DefaultVpnCoreEngine.establishSession به‌تنهایی فقط یک VpnTunnelSession ساختگی در حافظه می‌سازد و state را Established می‌کند؛ خودش هسته را اجرا نمی‌کند. چون JavadVpnService جداگانه Libv2ray.startLoop را صدا می‌زند، این wrapper نباید منبع اثبات اتصال باشد. وضعیت نهایی را به بررسی موفق واقعی در JavadVpnService گره بزن و از ایجاد دو منبع حقیقت برای state اتصال جلوگیری کن.
+
+============================================================
+I) تست‌های لازم برای پذیرش تغییرات
+============================================================
+1. درج ورودی ۳۰۰۰ کانفیگی: تعداد جدول server_configs هرگز بیشتر از ۱۲ نشود.
+2. درج چندباره یک منبع: رکورد تکراری اضافه نشود.
+3. دو لینک با host:port یکسان اما credential یا transport متفاوت، اشتباهاً یکی نشوند.
+4. کانفیگ تازه ابتدا isWorking=false و pingMs=-1 داشته باشد.
+5. باز بودن TCP بدون handshake موفق هرگز isWorking=true تولید نکند.
+6. شکست اتصال باعث failureCount++، isWorking=false و pingMs=-1 شود.
+7. candidate جایگزین تا قبل از تأیید واقعی به مخزن فعال وارد نشود.
+8. پس از تأیید candidate جدید، در صورت پر بودن مخزن فقط یک مورد خراب و غیر دستی/غیر Favorite حذف و تعداد نهایی حداکثر ۱۲ بماند.
+9. درخواست آزمایشی اینترنت از داخل تونل عبور کند؛ تست اینترنت مستقیم گوشی نباید به‌عنوان موفقیت VPN پذیرفته شود.
+10. آزمایش upgrade از دیتابیس نسخه ۲ به ۳ و اطمینان از حفظ داده‌های لازم.
+11. ساخت debug APK با Gradle و گزارش دقیق PASS/FAIL.
+
+در پایان، فایل‌های تغییرکرده و لاگ ساخت را ارائه بده. اگر امکان اجرای Android VPN واقعی در محیط فراهم نیست، فقط build/آزمون‌های قابل اجرا را PASS اعلام کن و تست تونل واقعی را صریحاً NOT TESTED گزارش بده. هیچ‌گاه برای تست انجام‌نشده ادعای موفقیت نکن.

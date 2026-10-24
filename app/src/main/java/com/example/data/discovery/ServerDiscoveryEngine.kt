@@ -1,8 +1,10 @@
 package com.example.data.discovery
 
 import com.example.data.local.AppDatabase
+import com.example.data.local.ConfigFingerprint
 import com.example.data.local.DiscoverySourceEntity
 import com.example.data.local.ServerConfigEntity
+import com.example.data.local.ServerLimits
 import com.example.data.parser.ConfigParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -60,7 +62,10 @@ class ServerDiscoveryEngine(private val db: AppDatabase) {
         if (_progress.value.isScanning) return@withContext 0
 
         logsList.clear()
-        addLog("INFO", "آغاز کاوش خودکار سرورها (پروتکل هدف: $targetProtocol)…")
+        addLog("INFO", "آغاز کاوش هوشمند (ظرفیت مخزن: حداکثر ${ServerLimits.MAX_ACTIVE_CONFIGS} سرور)…")
+
+        // Enforce 12-server cap initially on existing records
+        db.serverDao().trimToLimit(ServerLimits.MAX_ACTIVE_CONFIGS)
 
         val sources = db.sourceDao().getEnabledSources()
         _progress.value = DiscoveryProgress(
@@ -73,13 +78,19 @@ class ServerDiscoveryEngine(private val db: AppDatabase) {
         var totalInserted = 0
         var totalRaw = 0
         var duplicatesCount = 0
-        val seenFingerprints = mutableSetOf<String>()
 
-        // Preload existing fingerprints to avoid inserting duplicates
-        val existingServers = db.serverDao().getBestCandidate() // trigger read
-        
+        // Preload complete fingerprints across all active records
+        val seenFingerprints = db.serverDao().getAllServersOnce()
+            .mapTo(mutableSetOf()) { ConfigFingerprint.of(it) }
+
         var sourceIndex = 0
         for (source in sources) {
+            val currentCount = db.serverDao().getServerCountNow()
+            if (currentCount >= ServerLimits.MAX_ACTIVE_CONFIGS) {
+                addLog("SUCCESS", "ظرفیت مخزن فعال تکمیل شد (${ServerLimits.MAX_ACTIVE_CONFIGS} سرور). کاوش متوقف گردید.")
+                break
+            }
+
             sourceIndex++
             _progress.value = _progress.value.copy(
                 currentSource = source.name,
@@ -99,37 +110,43 @@ class ServerDiscoveryEngine(private val db: AppDatabase) {
                         if (body.isNotBlank()) {
                             val parsedConfigs = ConfigParser.parsePayload(body, source.url)
                             totalRaw += parsedConfigs.size
-                            addLog("INFO", "تعداد ${parsedConfigs.size} کانفیگ خام از ${source.name} استخراج شد.")
+                            addLog("INFO", "تعداد ${parsedConfigs.size} لینک از ${source.name} استخراج شد.")
 
                             val filtered = parsedConfigs.filter { config ->
-                                val matchProtocol = targetProtocol == "ALL" ||
-                                    config.protocol.equals(targetProtocol, ignoreCase = true)
-                                matchProtocol
+                                targetProtocol == "ALL" || config.protocol.equals(targetProtocol, ignoreCase = true)
                             }
 
                             val validUnique = mutableListOf<ServerConfigEntity>()
                             for (cfg in filtered) {
-                                val fingerprint = "${cfg.protocol}:${cfg.host.lowercase().trim()}:${cfg.port}"
+                                val fingerprint = ConfigFingerprint.of(cfg)
                                 if (seenFingerprints.add(fingerprint)) {
-                                    validUnique.add(cfg)
+                                    validUnique.add(
+                                        cfg.copy(
+                                            isWorking = false,
+                                            pingMs = -1L,
+                                            lastTestedTime = 0L
+                                        )
+                                    )
                                 } else {
                                     duplicatesCount++
                                 }
                             }
 
                             if (validUnique.isNotEmpty()) {
-                                db.serverDao().insertAll(validUnique)
-                                totalInserted += validUnique.size
-                                val sample = validUnique.first()
-                                addLog("SUCCESS", "✅ ${validUnique.size} نود معتبر ذخیره شد. آخرین: ${sample.name} (${sample.host})")
-                                _progress.value = _progress.value.copy(latestDiscovered = sample)
+                                val inserted = db.serverDao().insertCapped(validUnique, ServerLimits.MAX_ACTIVE_CONFIGS)
+                                totalInserted += inserted
+                                if (inserted > 0) {
+                                    val sample = validUnique.first()
+                                    addLog("SUCCESS", "✅ $inserted نود جدید در مخزن فعال (سقف ${ServerLimits.MAX_ACTIVE_CONFIGS}) ذخیره شد.")
+                                    _progress.value = _progress.value.copy(latestDiscovered = sample)
+                                }
                             }
 
                             db.sourceDao().updateFetchStatus(
                                 source.id,
                                 System.currentTimeMillis(),
                                 validUnique.size,
-                                "موفق (${validUnique.size} کانفیگ)"
+                                "موفق ($totalInserted نود افزوده شد)"
                             )
                         } else {
                             addLog("WARN", "پاسخ خالی از منبع ${source.name}")
@@ -147,10 +164,11 @@ class ServerDiscoveryEngine(private val db: AppDatabase) {
                 totalValidated = totalInserted,
                 totalDuplicatesRemoved = duplicatesCount
             )
-            delay(300) // Brief yield for responsive UI
+            delay(200)
         }
 
-        addLog("SUCCESS", "🏁 کاوش پایان یافت: $totalInserted نود جدید اضافه شد، $duplicatesCount تکراری حذف گردید.")
+        val finalCount = db.serverDao().getServerCountNow()
+        addLog("SUCCESS", "🏁 کاوش پایان یافت: $totalInserted نود جدید اضافه شد، $duplicatesCount تکراری رد شد. مجموع مخزن فعال: $finalCount از ${ServerLimits.MAX_ACTIVE_CONFIGS}")
         _progress.value = _progress.value.copy(isScanning = false, currentSource = "پایان اسکن")
         totalInserted
     }

@@ -4,6 +4,7 @@ import com.example.data.local.AppDatabase
 import com.example.data.local.ConnectionHistoryEntity
 import com.example.data.local.DiscoverySourceEntity
 import com.example.data.local.ServerConfigEntity
+import com.example.data.local.ServerLimits
 import com.example.data.parser.ConfigParser
 import com.example.data.prober.ServerProber
 import kotlinx.coroutines.Dispatchers
@@ -51,11 +52,8 @@ class VpnRepository(private val db: AppDatabase) {
 
     suspend fun importRawConfig(raw: String): Int = withContext(Dispatchers.IO) {
         val parsed = ConfigParser.parsePayload(raw, "Manual Import")
-        if (parsed.isNotEmpty()) {
-            val markedManual = parsed.map { it.copy(isManual = true) }
-            db.serverDao().insertAll(markedManual)
-        }
-        parsed.size
+        val markedManual = parsed.map { it.copy(isManual = true, isWorking = false, pingMs = -1L) }
+        db.serverDao().insertCapped(markedManual, ServerLimits.MAX_ACTIVE_CONFIGS)
     }
 
     suspend fun addSource(name: String, url: String) = withContext(Dispatchers.IO) {
@@ -90,14 +88,14 @@ class VpnRepository(private val db: AppDatabase) {
                         if (body.isNotBlank()) {
                             val configs = ConfigParser.parsePayload(body, source.url)
                             if (configs.isNotEmpty()) {
-                                db.serverDao().insertAll(configs)
-                                totalAdded += configs.size
-                                successfulSources++
+                                val inserted = db.serverDao().insertCapped(configs, ServerLimits.MAX_ACTIVE_CONFIGS)
+                                totalAdded += inserted
+                                if (inserted > 0) successfulSources++
                                 db.sourceDao().updateFetchStatus(
                                     source.id,
                                     System.currentTimeMillis(),
                                     configs.size,
-                                    "موفق (${configs.size} کانفیگ)"
+                                    "ذخیره $inserted از ${configs.size} لینک"
                                 )
                             } else {
                                 db.sourceDao().updateFetchStatus(
@@ -131,13 +129,14 @@ class VpnRepository(private val db: AppDatabase) {
 
     suspend fun testLatency(server: ServerConfigEntity): Long = withContext(Dispatchers.IO) {
         val ping = ServerProber.probe(server)
-        val isWorking = ping > 0
-        db.serverDao().updatePingAndStatus(
-            server.id,
-            ping,
-            isWorking,
-            System.currentTimeMillis()
-        )
+        val now = System.currentTimeMillis()
+        if (ping > 0L) {
+            // Endpoint is reachable; update ping metric while preserving verified tunnel status
+            db.serverDao().updatePing(server.id, ping, now)
+        } else {
+            // Endpoint is unreachable; mark as not working so it's not selected
+            db.serverDao().updatePingAndStatus(server.id, -1L, false, now)
+        }
         ping
     }
 
@@ -150,7 +149,7 @@ class VpnRepository(private val db: AppDatabase) {
             }
             jobs.awaitAll()
         }
-        // Retain top 100 fastest healthy servers, preserving all favorites and manual imports
-        db.serverDao().trimToTopHealthy(100)
+        // Strictly enforce active pool limit of 12
+        db.serverDao().trimToLimit(ServerLimits.MAX_ACTIVE_CONFIGS)
     }
 }

@@ -38,6 +38,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.util.concurrent.TimeUnit
 
 class JavadVpnService : VpnService() {
@@ -292,18 +294,29 @@ class JavadVpnService : VpnService() {
             "https://www.gstatic.com/generate_204",
             "https://cp.cloudflare.com/generate_204"
         )
-        for (url in testUrls) {
-            try {
-                val req = Request.Builder()
-                    .url(url)
-                    .header("User-Agent", "Mozilla/5.0 Javadsolvpn/2.0")
-                    .build()
-                verificationClient.newCall(req).execute().use { resp ->
-                    if (resp.code == 204 || resp.code == 200) {
-                        return@withContext true
+        // Strictly route verification requests through the core's proxy inbounds
+        // Proves that traffic is routed through the proxy outbound and not through unproxied direct internet
+        val httpProxy = Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", 10809))
+        val socksProxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", 10808))
+        val clients = listOf(
+            verificationClient.newBuilder().proxy(httpProxy).build(),
+            verificationClient.newBuilder().proxy(socksProxy).build()
+        )
+
+        for (client in clients) {
+            for (url in testUrls) {
+                try {
+                    val req = Request.Builder()
+                        .url(url)
+                        .header("User-Agent", "Mozilla/5.0 Javadsolvpn/2.0")
+                        .build()
+                    client.newCall(req).execute().use { resp ->
+                        if (resp.code == 204 || resp.code == 200) {
+                            return@withContext true
+                        }
                     }
-                }
-            } catch (_: Exception) {}
+                } catch (_: Exception) {}
+            }
         }
         false
     }
