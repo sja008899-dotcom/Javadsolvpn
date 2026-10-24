@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -77,6 +78,7 @@ fun HomeScreen(
     val bannerMessage by viewModel.bannerMessage.collectAsStateWithLifecycle()
     val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
     val isTestingPing by viewModel.isTestingPing.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
     val currentDisplayServer = activeServer ?: selectedServer
 
@@ -166,6 +168,35 @@ fun HomeScreen(
                     color = Color.White,
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+        }
+
+        // Persistent Error Banner
+        if (errorMessage != null && vpnStatus == VpnStatus.ERROR) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF3B151E))
+                    .border(1.dp, Color(0xFFFF5252), RoundedCornerShape(12.dp))
+                    .padding(12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        tint = Color(0xFFFF5252),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = errorMessage ?: "",
+                        fontSize = 12.sp,
+                        color = Color(0xFFFFD1D1),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
 

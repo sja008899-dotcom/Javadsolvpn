@@ -6,15 +6,21 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.TrafficStats as AndroidTrafficStats
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.Process
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
 import com.example.data.local.AppDatabase
 import com.example.data.local.ConnectionHistoryEntity
 import com.example.data.local.ServerConfigEntity
+import com.example.vpn.core.CoreConfigBuilder
+import com.example.vpn.core.DefaultVpnCoreEngine
+import com.example.vpn.core.EngineStats
+import com.example.vpn.core.TunnelConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,22 +30,39 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.nio.ByteBuffer
+import kotlinx.coroutines.withContext
+import libv2ray.CoreCallbackHandler
+import libv2ray.CoreController
+import libv2ray.Libv2ray
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.net.InetAddress
+import java.util.concurrent.TimeUnit
 
 class JavadVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
-    private var tunnelJob: Job? = null
     private var statsJob: Job? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO)
 
+    private var coreController: CoreController? = null
+    private var isCoreEnvInitialized = false
+
     private var connectTimeMillis: Long = 0L
-    private var totalBytesIn: Long = 0L
-    private var totalBytesOut: Long = 0L
-    private var lastBytesInSample: Long = 0L
-    private var lastBytesOutSample: Long = 0L
+    private var initialUidRxBytes: Long = 0L
+    private var initialUidTxBytes: Long = 0L
+    private var lastMeasuredRx: Long = 0L
+    private var lastMeasuredTx: Long = 0L
+    private var lastStatsSampleTime: Long = 0L
+
+    private val triedServersInSession = mutableSetOf<Long>()
+
+    private val verificationClient = OkHttpClient.Builder()
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(6, TimeUnit.SECONDS)
+        .followRedirects(false)
+        .build()
 
     companion object {
         const val ACTION_CONNECT = "com.example.vpn.ACTION_CONNECT"
@@ -86,6 +109,16 @@ class JavadVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        initCore()
+    }
+
+    private fun initCore() {
+        if (!isCoreEnvInitialized) {
+            try {
+                Libv2ray.initCoreEnv(filesDir.absolutePath, "")
+                isCoreEnvInitialized = true
+            } catch (_: Throwable) {}
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -93,6 +126,7 @@ class JavadVpnService : VpnService() {
             ACTION_CONNECT -> {
                 val serverId = intent.getLongExtra(EXTRA_SERVER_ID, -1L)
                 val preferredDns = intent.getStringExtra(EXTRA_DNS) ?: "1.1.1.1"
+                triedServersInSession.clear()
                 initiateConnection(serverId, preferredDns)
             }
             ACTION_DISCONNECT -> {
@@ -105,117 +139,173 @@ class JavadVpnService : VpnService() {
     private fun initiateConnection(serverId: Long, dns: String) {
         _vpnStatus.value = VpnStatus.CONNECTING
         _errorMessage.value = null
-        startForeground(NOTIFICATION_ID, buildNotification("در حال اتصال…", "آماده‌سازی تونل امن"))
+        startForeground(NOTIFICATION_ID, buildNotification("در حال اتصال…", "آماده‌سازی هسته شبکه"))
 
         serviceScope.launch {
             val db = AppDatabase.getInstance(applicationContext)
-            val server = db.serverDao().getServerById(serverId)
+            var targetServer = if (serverId > 0) db.serverDao().getServerById(serverId) else null
+            if (targetServer == null) {
+                targetServer = db.serverDao().getBestCandidate()
+            }
 
-            if (server == null) {
+            if (targetServer == null) {
                 _vpnStatus.value = VpnStatus.ERROR
-                _errorMessage.value = "کانفیگ مورد نظر یافت نشد"
+                _errorMessage.value = "هیچ کانفیگ سالمی برای اتصال یافت نشد."
                 stopSelf()
                 return@launch
             }
 
-            _activeServer.value = server
+            triedServersInSession.add(targetServer.id)
+            _activeServer.value = targetServer
 
             try {
-                val coreEngine = com.example.vpn.core.DefaultVpnCoreEngine.instance
+                // 1. Pre-resolve server domain to IP to avoid DNS deadlock
+                withContext(Dispatchers.IO) {
+                    try {
+                        InetAddress.getAllByName(targetServer.host)
+                    } catch (_: Exception) {}
+                }
+
+                // 2. Prepare Xray Core JSON
+                val configJson = CoreConfigBuilder.buildConfigJson(targetServer)
+
+                // 3. Prepare parameters for Android VpnService Builder
                 val dnsList = when (dns) {
                     "8.8.8.8" -> listOf("8.8.8.8", "8.8.4.4")
                     "9.9.9.9" -> listOf("9.9.9.9", "149.112.112.112")
                     else -> listOf("1.1.1.1", "1.0.0.1")
                 }
-                val tunnelConfig = com.example.vpn.core.TunnelConfig(server = server, dnsServers = dnsList)
-                val paramsResult = coreEngine.prepareSession(tunnelConfig)
+
+                val tunnelConfig = TunnelConfig(server = targetServer, dnsServers = dnsList)
+                val paramsResult = DefaultVpnCoreEngine.instance.prepareSession(tunnelConfig)
                 val params = paramsResult.getOrThrow()
 
-                // Prepare genuine VPN Tunnel using Android VpnService Builder
                 val builder = Builder()
-                    .setSession(params.sessionName)
+                    .setSession("Javadsolvpn - ${targetServer.name}")
                     .addAddress(params.virtualIp, params.routingPrefix)
                     .addRoute("0.0.0.0", 0)
                     .setMtu(params.mtu)
                     .setBlocking(false)
 
+                // Add IPv6 route to prevent IPv6 leakage
+                try {
+                    builder.addRoute("::", 0)
+                } catch (_: Exception) {}
+
+                // Exempt this app's own process to prevent core outbound socket loops
+                try {
+                    builder.addDisallowedApplication(packageName)
+                } catch (_: Exception) {}
+
                 params.dnsServers.forEach { builder.addDnsServer(it) }
 
-                vpnInterface?.close()
-                val pfd = builder.establish()
+                // Close existing tunnel if any
+                stopCore()
+                try { vpnInterface?.close() } catch (_: Exception) {}
 
+                val pfd = builder.establish()
                 if (pfd == null) {
                     _vpnStatus.value = VpnStatus.ERROR
-                    _errorMessage.value = "خطا در ایجاد تونل VPN (مجوز سیستمی ناموفق بود)"
+                    _errorMessage.value = "خطا در ایجاد رابط VPN سیستم (مجوز سیستم صادر نشد)"
                     stopSelf()
                     return@launch
                 }
-
                 vpnInterface = pfd
-                connectTimeMillis = System.currentTimeMillis()
-                totalBytesIn = 0L
-                totalBytesOut = 0L
-                lastBytesInSample = 0L
-                lastBytesOutSample = 0L
 
-                coreEngine.establishSession(params)
+                // 4. Start Core Loop with the real TUN file descriptor
+                val callback = object : CoreCallbackHandler {
+                    override fun onEmitStatus(status: Long, msg: String?): Long = 0L
+                    override fun startup(): Long = 0L
+                    override fun shutdown(): Long = 0L
+                }
+
+                val controller = Libv2ray.newCoreController(callback)
+                coreController = controller
+                controller.startLoop(configJson, pfd.fd)
+
+                // Yield to allow core to establish listener
+                delay(800)
+
+                // 5. Genuine Live Connectivity Verification (generate_204)
+                val isAlive = verifyLiveInternet()
+                if (!isAlive) {
+                    // Core did not pass live internet test. Clean up immediately so user internet is NOT blocked!
+                    stopCore()
+                    try { pfd.close() } catch (_: Exception) {}
+                    vpnInterface = null
+                    db.serverDao().recordFailure(targetServer.id)
+
+                    // Auto-failover: try next candidate
+                    val nextCandidate = db.serverDao().getNextCandidate(targetServer.id)
+                    if (nextCandidate != null && !triedServersInSession.contains(nextCandidate.id)) {
+                        _errorMessage.value = "سرور ${targetServer.name} پاسخ نداد؛ در حال انتقال به سرور بعدی…"
+                        initiateConnection(nextCandidate.id, dns)
+                        return@launch
+                    } else {
+                        _vpnStatus.value = VpnStatus.ERROR
+                        _errorMessage.value = "عدم پاسخ سرور در تست اتصال واقعی (generate_204). تونل جهت جلوگیری از قطعی اینترنت بسته شد."
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                        return@launch
+                    }
+                }
+
+                // Connection verified as truly alive!
+                connectTimeMillis = System.currentTimeMillis()
+                val myUid = Process.myUid()
+                initialUidRxBytes = AndroidTrafficStats.getUidRxBytes(myUid).coerceAtLeast(0L)
+                initialUidTxBytes = AndroidTrafficStats.getUidTxBytes(myUid).coerceAtLeast(0L)
+                lastMeasuredRx = 0L
+                lastMeasuredTx = 0L
+                lastStatsSampleTime = System.currentTimeMillis()
+
+                DefaultVpnCoreEngine.instance.establishSession(params)
                 _vpnStatus.value = VpnStatus.CONNECTED
-                db.serverDao().recordSuccess(server.id)
+                _errorMessage.value = null
+                db.serverDao().recordSuccess(targetServer.id)
 
                 startForeground(
                     NOTIFICATION_ID,
                     buildNotification(
-                        "متصل به ${server.name}",
-                        "پروتکل: ${params.protocol} • پینگ: ${if (server.pingMs > 0) "${server.pingMs}ms" else "تأیید شد"}"
+                        "متصل به ${targetServer.name}",
+                        "پروتکل: ${params.protocol} • اینترنت تأیید شد"
                     )
                 )
 
-                startPacketLoop(pfd)
                 startStatsTicker()
 
             } catch (e: Exception) {
+                stopCore()
+                try { vpnInterface?.close() } catch (_: Exception) {}
+                vpnInterface = null
                 _vpnStatus.value = VpnStatus.ERROR
-                _errorMessage.value = "خطا در اتصال: ${e.localizedMessage ?: "عدم دسترسی به سرور"}"
-                db.serverDao().recordFailure(server.id)
-                terminateVpn("خطا در ارتباط")
+                _errorMessage.value = "خطا در راه‌اندازی هسته: ${e.localizedMessage ?: "عدم ارتباط"}"
+                db.serverDao().recordFailure(targetServer.id)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
             }
         }
     }
 
-    private fun startPacketLoop(pfd: ParcelFileDescriptor) {
-        tunnelJob?.cancel()
-        tunnelJob = serviceScope.launch {
-            val inStream = FileInputStream(pfd.fileDescriptor)
-            val outStream = FileOutputStream(pfd.fileDescriptor)
-            val packet = ByteBuffer.allocate(32768)
-
+    private suspend fun verifyLiveInternet(): Boolean = withContext(Dispatchers.IO) {
+        val testUrls = listOf(
+            "https://www.gstatic.com/generate_204",
+            "https://cp.cloudflare.com/generate_204"
+        )
+        for (url in testUrls) {
             try {
-                while (isActive && _vpnStatus.value == VpnStatus.CONNECTED) {
-                    packet.clear()
-                    val length = try {
-                        inStream.channel.read(packet)
-                    } catch (_: Exception) { -1 }
-
-                    if (length > 0) {
-                        totalBytesOut += length
-                        // Simulated non-blocking routing through endpoint socket
-                        val inBytes = (length * 0.95).toLong().coerceAtLeast(64L)
-                        totalBytesIn += inBytes
-                    } else {
-                        // Periodic heartbeat packet tracking
-                        delay(500)
-                        totalBytesIn += (64..256).random()
-                        totalBytesOut += (48..128).random()
+                val req = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 Javadsolvpn/2.0")
+                    .build()
+                verificationClient.newCall(req).execute().use { resp ->
+                    if (resp.code == 204 || resp.code == 200) {
+                        return@withContext true
                     }
                 }
-            } catch (_: Exception) {
-            } finally {
-                try {
-                    inStream.close()
-                    outStream.close()
-                } catch (_: Exception) {}
-            }
+            } catch (_: Exception) {}
         }
+        false
     }
 
     private fun startStatsTicker() {
@@ -223,44 +313,92 @@ class JavadVpnService : VpnService() {
         statsJob = serviceScope.launch {
             while (isActive && _vpnStatus.value == VpnStatus.CONNECTED) {
                 delay(1000)
-                val durationSec = (System.currentTimeMillis() - connectTimeMillis) / 1000
+                val now = System.currentTimeMillis()
+                val durationSec = (now - connectTimeMillis) / 1000
 
-                val deltaIn = (totalBytesIn - lastBytesInSample).coerceAtLeast(0)
-                val deltaOut = (totalBytesOut - lastBytesOutSample).coerceAtLeast(0)
-                lastBytesInSample = totalBytesIn
-                lastBytesOutSample = totalBytesOut
+                var currentRxBytes = 0L
+                var currentTxBytes = 0L
 
-                val speedInKbps = (deltaIn * 8.0) / 1024.0
-                val speedOutKbps = (deltaOut * 8.0) / 1024.0
+                // 1. Try reading genuine stats from CoreController
+                val coreStatsJson = try {
+                    coreController?.queryAllOutboundTrafficStats()
+                } catch (_: Exception) { null }
+
+                if (!coreStatsJson.isNullOrBlank()) {
+                    try {
+                        val json = JSONObject(coreStatsJson)
+                        val proxyObj = json.optJSONObject("proxy")
+                        if (proxyObj != null) {
+                            currentTxBytes = proxyObj.optLong("link", 0L)
+                            currentRxBytes = proxyObj.optLong("downlink", 0L)
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // 2. Fall back to genuine OS TrafficStats if core JSON is unpopulated
+                if (currentRxBytes == 0L && currentTxBytes == 0L) {
+                    val myUid = Process.myUid()
+                    val totalRx = AndroidTrafficStats.getUidRxBytes(myUid)
+                    val totalTx = AndroidTrafficStats.getUidTxBytes(myUid)
+                    if (totalRx >= initialUidRxBytes) {
+                        currentRxBytes = totalRx - initialUidRxBytes
+                    }
+                    if (totalTx >= initialUidTxBytes) {
+                        currentTxBytes = totalTx - initialUidTxBytes
+                    }
+                }
+
+                val timeDeltaSec = ((now - lastStatsSampleTime) / 1000.0).coerceAtLeast(0.5)
+                val deltaRx = (currentRxBytes - lastMeasuredRx).coerceAtLeast(0L)
+                val deltaTx = (currentTxBytes - lastMeasuredTx).coerceAtLeast(0L)
+
+                lastMeasuredRx = currentRxBytes
+                lastMeasuredTx = currentTxBytes
+                lastStatsSampleTime = now
+
+                val speedInKbps = ((deltaRx * 8.0) / 1024.0) / timeDeltaSec
+                val speedOutKbps = ((deltaTx * 8.0) / 1024.0) / timeDeltaSec
 
                 val stats = TrafficStats(
-                    bytesIn = totalBytesIn,
-                    bytesOut = totalBytesOut,
+                    bytesIn = currentRxBytes,
+                    bytesOut = currentTxBytes,
                     downloadSpeedKbps = speedInKbps,
                     uploadSpeedKbps = speedOutKbps,
                     durationSeconds = durationSec,
-                    pingMs = _activeServer.value?.pingMs ?: 45L
+                    pingMs = _activeServer.value?.pingMs?.coerceAtLeast(1L) ?: 1L
                 )
                 _trafficStats.value = stats
-                com.example.vpn.core.DefaultVpnCoreEngine.instance.updateStats(
-                    com.example.vpn.core.EngineStats(
-                        totalBytesIn = totalBytesIn,
-                        totalBytesOut = totalBytesOut,
+
+                DefaultVpnCoreEngine.instance.updateStats(
+                    EngineStats(
+                        totalBytesIn = currentRxBytes,
+                        totalBytesOut = currentTxBytes,
                         currentDownloadKbps = speedInKbps,
                         currentUploadKbps = speedOutKbps,
-                        activeConnections = 1
+                        activeConnections = if (currentRxBytes > 0) 1 else 0
                     )
                 )
             }
         }
     }
 
+    private fun stopCore() {
+        try {
+            coreController?.stopLoop()
+        } catch (_: Exception) {}
+        coreController = null
+    }
+
     private fun terminateVpn(reason: String) {
-        com.example.vpn.core.DefaultVpnCoreEngine.instance.terminateSession(reason)
+        DefaultVpnCoreEngine.instance.terminateSession(reason)
+        stopCore()
+
         val server = _activeServer.value
         val duration = if (connectTimeMillis > 0) (System.currentTimeMillis() - connectTimeMillis) / 1000 else 0L
 
         if (server != null && duration > 0) {
+            val finalRx = lastMeasuredRx
+            val finalTx = lastMeasuredTx
             serviceScope.launch {
                 val db = AppDatabase.getInstance(applicationContext)
                 db.historyDao().insertHistory(
@@ -269,15 +407,14 @@ class JavadVpnService : VpnService() {
                         protocol = server.protocol,
                         connectedAt = connectTimeMillis,
                         durationSeconds = duration,
-                        bytesDownloaded = totalBytesIn,
-                        bytesUploaded = totalBytesOut,
+                        bytesDownloaded = finalRx,
+                        bytesUploaded = finalTx,
                         disconnectReason = reason
                     )
                 )
             }
         }
 
-        tunnelJob?.cancel()
         statsJob?.cancel()
         try {
             vpnInterface?.close()

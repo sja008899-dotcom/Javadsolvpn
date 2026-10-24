@@ -139,7 +139,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(text = "پروتکل‌های مورد پشتیبانی", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        Text(text = "VLESS Reality • VMess • Trojan • Shadowsocks • OpenVPN", fontSize = 11.sp, color = TextSecondary)
+                        Text(text = "VLESS Reality • VMess • Trojan • Shadowsocks", fontSize = 11.sp, color = TextSecondary)
                     }
                 }
                 Text(
@@ -223,7 +223,7 @@ fun SettingsScreen(
                         lineHeight = 20.sp
                     )
                     Text(
-                        text = "• کشف خودکار کانفیگ‌ها از منابع عمومی و هاب اختصاصی\n• انبار محلی رمزنگاری‌شده در دستگاه\n• سازگار با VLESS Reality, VMess, Trojan, Shadowsocks و OpenVPN\n• بدون ذخیره داده‌های شخصی یا ترافیک",
+                        text = "• کشف خودکار کانفیگ‌ها از منابع عمومی و هاب اختصاصی\n• انبار محلی رمزنگاری‌شده در دستگاه\n• سازگار با VLESS Reality, VMess, Trojan و Shadowsocks\n• بدون ذخیره داده‌های شخصی یا ترافیک",
                         fontSize = 12.sp,
                         color = TextSecondary,
                         lineHeight = 20.sp

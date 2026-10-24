@@ -230,7 +230,7 @@ fun DiscoveryScreen(
             text = {
                 Column {
                     Text(
-                        text = "می‌توانید لینک‌های vless, vmess, trojan, ss, openvpn یا سابسکریپشن base64 را وارد کنید:",
+                        text = "می‌توانید لینک‌های vless, vmess, trojan, ss یا سابسکریپشن base64 را وارد کنید:",
                         fontSize = 12.sp,
                         color = TextSecondary
                     )
@@ -470,7 +470,7 @@ private fun DiscoveryRadarCard(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                val protoList = listOf("ALL" to "همه", "VLESS" to "VLESS", "VMESS" to "VMess", "TROJAN" to "Trojan", "SS" to "Shadowsocks", "OPENVPN" to "OpenVPN")
+                val protoList = listOf("ALL" to "همه", "VLESS" to "VLESS", "VMESS" to "VMess", "TROJAN" to "Trojan", "SS" to "Shadowsocks")
                 protoList.forEach { (code, label) ->
                     val isSel = selectedProtocol == code
                     FilterChip(

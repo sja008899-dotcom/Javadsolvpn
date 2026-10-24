@@ -5,13 +5,15 @@ import com.example.data.local.ConnectionHistoryEntity
 import com.example.data.local.DiscoverySourceEntity
 import com.example.data.local.ServerConfigEntity
 import com.example.data.parser.ConfigParser
+import com.example.data.prober.ServerProber
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.net.InetSocketAddress
-import java.net.Socket
 import java.util.concurrent.TimeUnit
 
 class VpnRepository(private val db: AppDatabase) {
@@ -50,7 +52,8 @@ class VpnRepository(private val db: AppDatabase) {
     suspend fun importRawConfig(raw: String): Int = withContext(Dispatchers.IO) {
         val parsed = ConfigParser.parsePayload(raw, "Manual Import")
         if (parsed.isNotEmpty()) {
-            db.serverDao().insertAll(parsed)
+            val markedManual = parsed.map { it.copy(isManual = true) }
+            db.serverDao().insertAll(markedManual)
         }
         parsed.size
     }
@@ -78,7 +81,7 @@ class VpnRepository(private val db: AppDatabase) {
             try {
                 val request = Request.Builder()
                     .url(source.url)
-                    .header("User-Agent", "Javadsolvpn/1.0 (Android)")
+                    .header("User-Agent", "Javadsolvpn/2.0 (Android)")
                     .build()
 
                 httpClient.newCall(request).execute().use { response ->
@@ -127,24 +130,27 @@ class VpnRepository(private val db: AppDatabase) {
     }
 
     suspend fun testLatency(server: ServerConfigEntity): Long = withContext(Dispatchers.IO) {
-        val startTime = System.currentTimeMillis()
-        var ping = -1L
-        try {
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress(server.host, server.port), 2500)
-                ping = System.currentTimeMillis() - startTime
-            }
-        } catch (_: Exception) {
-            ping = -1L
-        }
-        val finalPing = if (ping > 0) ping else 45L // Fallback baseline if ping blocked by firewall
-        db.serverDao().updatePing(server.id, finalPing, System.currentTimeMillis())
-        finalPing
+        val ping = ServerProber.probe(server)
+        val isWorking = ping > 0
+        db.serverDao().updatePingAndStatus(
+            server.id,
+            ping,
+            isWorking,
+            System.currentTimeMillis()
+        )
+        ping
     }
 
     suspend fun testAllLatencies(servers: List<ServerConfigEntity>) = withContext(Dispatchers.IO) {
-        servers.take(30).forEach { server ->
-            testLatency(server)
+        coroutineScope {
+            val jobs = servers.map { server ->
+                async {
+                    testLatency(server)
+                }
+            }
+            jobs.awaitAll()
         }
+        // Retain top 100 fastest healthy servers, preserving all favorites and manual imports
+        db.serverDao().trimToTopHealthy(100)
     }
 }

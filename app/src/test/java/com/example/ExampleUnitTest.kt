@@ -4,12 +4,16 @@ import com.example.data.local.ServerConfigEntity
 import com.example.data.parser.ConfigParser
 import com.example.data.parser.CountryDetector
 import com.example.vpn.TrafficStats
+import com.example.vpn.core.CoreConfigBuilder
 import com.example.vpn.core.DefaultVpnCoreEngine
 import com.example.vpn.core.TunnelConfig
 import com.example.vpn.core.VpnCoreState
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -48,53 +52,102 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun configParser_parsesTrojanLink() {
-        val link = "trojan://pass123@de.example.com:443?security=tls#Javad%20Test"
+    fun configParser_parsesVlessRealityWithIpv6AndParams() {
+        val link = "vless://9f4e45ab-234e-4f01-92b3-a1286c8f4955@[2001:db8::1]:443?type=tcp&security=reality&sni=speed.cloudflare.com&fp=chrome&pbk=1111111111111111111111111111111111111111111=&sid=12345678&flow=xtls-rprx-vision#Javad%20IPv6"
         val parsed = ConfigParser.parseSingleLink(link, "test_source", 1)
         assertNotNull(parsed)
-        assertEquals("trojan", parsed?.protocol)
-        assertEquals("de.example.com", parsed?.host)
+        assertEquals("vless", parsed?.protocol)
+        assertEquals("2001:db8::1", parsed?.host)
         assertEquals(443, parsed?.port)
-        assertTrue(parsed?.name?.contains("Javad 1") == true)
+        assertEquals("9f4e45ab-234e-4f01-92b3-a1286c8f4955", parsed?.uuidOrPassword)
+        assertEquals("reality", parsed?.securityType)
+        assertEquals("speed.cloudflare.com", parsed?.sni)
+        assertEquals("1111111111111111111111111111111111111111111=", parsed?.publicKey)
+        assertEquals("12345678", parsed?.shortId)
+        assertEquals("chrome", parsed?.fingerprint)
+        assertEquals("xtls-rprx-vision", parsed?.flow)
     }
 
     @Test
-    fun configParser_parsesHubJson() {
-        val hubJson = """
-            {
-              "updated_at": "2026-10-23T12:00:00Z",
-              "v2ray": [
-                {
-                  "name": "Javad 1",
-                  "link": "vless://9f4e45ab-234e-4f01-92b3-a1286c8f4955@us.server.com:443?security=reality#Javad%201",
-                  "protocol": "vless"
-                }
-              ],
-              "openvpn": [
-                {
-                  "name": "Javad VPN 1",
-                  "ovpn_base64": "cmVtb3RlIGpwLnNlcnZlci5uZXQgMTE5NA==",
-                  "country": "JP"
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val list = ConfigParser.parsePayload(hubJson, "hub_source")
-        assertEquals(2, list.size)
-        assertEquals("vless", list[0].protocol)
-        assertEquals("openvpn", list[1].protocol)
+    fun configParser_repairsBase64Padding() {
+        // "Hello World!" in base64 is "SGVsbG8gV29ybGQh" (length 16, already multiple of 4)
+        // "Hello World" in base64 is "SGVsbG8gV29ybGQ=" (missing padding -> "SGVsbG8gV29ybGQ")
+        val unpadded = "SGVsbG8gV29ybGQ"
+        val decoded = ConfigParser.decodeBase64(unpadded)
+        assertEquals("Hello World", decoded)
     }
 
     @Test
-    fun vpnCoreEngine_managesAdaptersAndSessionLifecycle() = runBlocking {
+    fun configParser_rejectsOpenVpnAndInvalidShadowsocks() {
+        // OpenVPN link must be rejected
+        val ovpnLink = "openvpn://public-vpn-90.opengw.net:1195#OpenVPN%20Test"
+        val parsedOvpn = ConfigParser.parseSingleLink(ovpnLink, "test_source", 1)
+        assertNull(parsedOvpn)
+
+        // Invalid Shadowsocks without host must be rejected (no 127.0.0.1 fallback)
+        val invalidSs = "ss://invalid-content#tag"
+        val parsedSs = ConfigParser.parseSingleLink(invalidSs, "test_source", 1)
+        assertNull(parsedSs)
+    }
+
+    @Test
+    fun coreConfigBuilder_buildsValidXrayJson() {
+        val server = ServerConfigEntity(
+            name = "Javad Reality Server",
+            protocol = "vless",
+            host = "us-east.javadsolvpn.net",
+            port = 443,
+            rawLink = "vless://uuid@us-east.javadsolvpn.net:443",
+            uuidOrPassword = "9f4e45ab-234e-4f01-92b3-a1286c8f4955",
+            securityType = "reality",
+            transportType = "tcp",
+            sni = "speed.cloudflare.com",
+            publicKey = "1111111111111111111111111111111111111111111=",
+            shortId = "12345678",
+            fingerprint = "chrome",
+            flow = "xtls-rprx-vision"
+        )
+
+        val jsonString = CoreConfigBuilder.buildConfigJson(server)
+        assertNotNull(jsonString)
+        val json = JSONObject(jsonString)
+
+        // Verify inbounds
+        val inbounds = json.getJSONArray("inbounds")
+        assertTrue(inbounds.length() >= 2)
+        assertEquals("socks", inbounds.getJSONObject(0).getString("protocol"))
+        assertEquals(10808, inbounds.getJSONObject(0).getInt("port"))
+
+        // Verify outbounds
+        val outbounds = json.getJSONArray("outbounds")
+        val proxy = outbounds.getJSONObject(0)
+        assertEquals("vless", proxy.getString("protocol"))
+
+        val streamSettings = proxy.getJSONObject("streamSettings")
+        assertEquals("reality", streamSettings.getString("security"))
+        val realitySettings = streamSettings.getJSONObject("realitySettings")
+        assertEquals("speed.cloudflare.com", realitySettings.getString("serverName"))
+        assertEquals("1111111111111111111111111111111111111111111=", realitySettings.getString("publicKey"))
+        assertEquals("12345678", realitySettings.getString("shortId"))
+        assertEquals("chrome", realitySettings.getString("fingerprint"))
+
+        // Verify stats and policy
+        assertTrue(json.has("stats"))
+        assertTrue(json.has("policy"))
+        val policySystem = json.getJSONObject("policy").getJSONObject("system")
+        assertTrue(policySystem.getBoolean("statsOutboundUplink"))
+        assertTrue(policySystem.getBoolean("statsOutboundDownlink"))
+    }
+
+    @Test
+    fun vpnCoreEngine_managesSupportedProtocolsWithoutOpenVpn() = runBlocking {
         val engine = DefaultVpnCoreEngine()
         val protocols = engine.getSupportedProtocols()
         assertTrue(protocols.contains("VLESS"))
         assertTrue(protocols.contains("TROJAN"))
         assertTrue(protocols.contains("VMESS"))
         assertTrue(protocols.contains("SS"))
-        assertTrue(protocols.contains("OPENVPN"))
+        assertFalse(protocols.contains("OPENVPN"))
 
         val mockServer = ServerConfigEntity(
             name = "Javad 1 • US",

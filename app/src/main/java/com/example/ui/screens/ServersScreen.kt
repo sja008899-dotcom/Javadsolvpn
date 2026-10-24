@@ -155,7 +155,7 @@ fun ServersScreen(
                 .padding(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            val protocols = listOf("ALL" to "همه", "VLESS" to "VLESS", "VMESS" to "VMess", "TROJAN" to "Trojan", "SS" to "Shadowsocks", "OPENVPN" to "OpenVPN")
+            val protocols = listOf("ALL" to "همه", "VLESS" to "VLESS", "VMESS" to "VMess", "TROJAN" to "Trojan", "SS" to "Shadowsocks")
             protocols.forEach { (code, label) ->
                 val isSelected = selectedProtocol == code
                 FilterChip(

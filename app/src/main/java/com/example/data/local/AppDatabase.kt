@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
         DiscoverySourceEntity::class,
         ConnectionHistoryEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -33,7 +33,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "javadsolvpn.db"
-                ).addCallback(object : Callback() {
+                )
+                .fallbackToDestructiveMigration()
+                .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
                         CoroutineScope(Dispatchers.IO).launch {
@@ -54,8 +56,8 @@ abstract class AppDatabase : RoomDatabase() {
                                     isEnabled = true
                                 ),
                                 DiscoverySourceEntity(
-                                    name = "سرورهای عمومی و آزاد VPN Gate (OpenVPN)",
-                                    url = "https://www.vpngate.net/api/iphone/",
+                                    name = "منبع نودهای فعال V2Ray و SS",
+                                    url = "https://raw.githubusercontent.com/freefq/free/master/v2",
                                     isEnabled = true
                                 )
                             )

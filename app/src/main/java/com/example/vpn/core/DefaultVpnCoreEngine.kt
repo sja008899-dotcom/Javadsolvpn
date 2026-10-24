@@ -1,7 +1,6 @@
 package com.example.vpn.core
 
 import com.example.data.local.ServerConfigEntity
-import com.example.vpn.core.adapters.OpenVpnProtocolAdapter
 import com.example.vpn.core.adapters.ShadowsocksProtocolAdapter
 import com.example.vpn.core.adapters.TrojanProtocolAdapter
 import com.example.vpn.core.adapters.VlessProtocolAdapter
@@ -25,12 +24,11 @@ class DefaultVpnCoreEngine : VpnCoreInterface {
     override val engineStats: StateFlow<EngineStats> = _engineStats.asStateFlow()
 
     init {
-        // Register default built-in core adapters
+        // Register genuine modern Xray/V2Ray adapters
         registerProtocolAdapter(VlessProtocolAdapter())
         registerProtocolAdapter(TrojanProtocolAdapter())
         registerProtocolAdapter(VmessProtocolAdapter())
         registerProtocolAdapter(ShadowsocksProtocolAdapter())
-        registerProtocolAdapter(OpenVpnProtocolAdapter())
     }
 
     override fun registerProtocolAdapter(adapter: ProtocolAdapter) {

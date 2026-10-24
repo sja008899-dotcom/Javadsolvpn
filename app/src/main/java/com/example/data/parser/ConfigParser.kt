@@ -7,18 +7,22 @@ import java.nio.charset.StandardCharsets
 
 object ConfigParser {
 
-    private fun decodeBase64(input: String): String {
-        val clean = input.trim().replace("\n", "").replace("\r", "")
+    /**
+     * Decodes Base64 or Base64URL string, automatically repairing missing padding '='.
+     */
+    fun decodeBase64(input: String): String {
+        var clean = input.trim().replace("\n", "").replace("\r", "").replace(" ", "")
+        if (clean.isEmpty()) return ""
+        clean = clean.replace('-', '+').replace('_', '/')
+        val remainder = clean.length % 4
+        if (remainder != 0) {
+            clean += "=".repeat(4 - remainder)
+        }
         return try {
             val bytes = java.util.Base64.getDecoder().decode(clean)
             String(bytes, StandardCharsets.UTF_8)
         } catch (_: Exception) {
-            try {
-                val bytes = java.util.Base64.getUrlDecoder().decode(clean)
-                String(bytes, StandardCharsets.UTF_8)
-            } catch (_: Exception) {
-                ""
-            }
+            ""
         }
     }
 
@@ -30,12 +34,36 @@ object ConfigParser {
         val fragment: String
     )
 
+    /**
+     * Correctly separates host and port supporting IPv6 bracket notation [2001:db8::1]:443
+     */
+    private fun parseHostAndPort(rawEndpoint: String, defaultPort: Int = 443): Pair<String, Int> {
+        val endpoint = rawEndpoint.trim()
+        if (endpoint.startsWith("[")) {
+            val closeBracket = endpoint.indexOf(']')
+            if (closeBracket != -1) {
+                val host = endpoint.substring(1, closeBracket)
+                val portStr = endpoint.substring(closeBracket + 1).removePrefix(":")
+                val port = portStr.toIntOrNull() ?: defaultPort
+                return Pair(host, port)
+            }
+        }
+        val colonIdx = endpoint.lastIndexOf(':')
+        return if (colonIdx != -1) {
+            val host = endpoint.substring(0, colonIdx)
+            val port = endpoint.substring(colonIdx + 1).toIntOrNull() ?: defaultPort
+            Pair(host, port)
+        } else {
+            Pair(endpoint, defaultPort)
+        }
+    }
+
     private fun parseUriManual(uriStr: String): ParsedUri? {
         val schemeEnd = uriStr.indexOf("://")
         if (schemeEnd == -1) return null
         var rest = uriStr.substring(schemeEnd + 3)
 
-        // Fragment
+        // Fragment (#tag)
         var fragment = ""
         val hashIdx = rest.indexOf('#')
         if (hashIdx != -1) {
@@ -43,7 +71,7 @@ object ConfigParser {
             rest = rest.substring(0, hashIdx)
         }
 
-        // Query params
+        // Query params (?key=val&...)
         val queryParams = mutableMapOf<String, String>()
         val queryIdx = rest.indexOf('?')
         if (queryIdx != -1) {
@@ -53,29 +81,22 @@ object ConfigParser {
             for (p in pairs) {
                 val kv = p.split("=", limit = 2)
                 if (kv.isNotEmpty()) {
-                    val key = kv[0]
+                    val key = kv[0].lowercase().trim()
                     val value = if (kv.size > 1) safeDecode(kv[1]) else ""
                     queryParams[key] = value
                 }
             }
         }
 
-        // UserInfo and Host:Port
+        // UserInfo (@host)
         var userInfo = ""
         val atIdx = rest.lastIndexOf('@')
         if (atIdx != -1) {
-            userInfo = rest.substring(0, atIdx)
+            userInfo = safeDecode(rest.substring(0, atIdx))
             rest = rest.substring(atIdx + 1)
         }
 
-        var host = rest
-        var port = 443
-        if (rest.contains(":")) {
-            val parts = rest.split(":")
-            host = parts[0]
-            port = parts.getOrNull(1)?.toIntOrNull() ?: 443
-        }
-
+        val (host, port) = parseHostAndPort(rest, 443)
         if (host.isBlank()) return null
         return ParsedUri(userInfo, host, port, queryParams, fragment)
     }
@@ -84,35 +105,20 @@ object ConfigParser {
         val trimmed = content.trim()
         val result = mutableListOf<ServerConfigEntity>()
 
-        // 1. Try JSON Hub schema
+        // 1. Try JSON Hub schema (v2ray array)
         if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
             try {
                 val json = JSONObject(trimmed)
-                if (json.has("v2ray") || json.has("openvpn")) {
+                if (json.has("v2ray")) {
                     var currentIndex = startIndex
-                    if (json.has("v2ray")) {
-                        val v2rayArr = json.getJSONArray("v2ray")
-                        for (i in 0 until v2rayArr.length()) {
-                            val item = v2rayArr.getJSONObject(i)
-                            val link = item.optString("link")
-                            val parsed = parseSingleLink(link, sourceUrl, currentIndex)
-                            if (parsed != null) {
-                                result.add(parsed)
-                                currentIndex++
-                            }
-                        }
-                    }
-                    if (json.has("openvpn")) {
-                        val ovpnArr = json.getJSONArray("openvpn")
-                        for (i in 0 until ovpnArr.length()) {
-                            val item = ovpnArr.getJSONObject(i)
-                            val ovpnB64 = item.optString("ovpn_base64")
-                            val country = item.optString("country", "AUTO")
-                            val parsed = parseOpenVpn(ovpnB64, country, sourceUrl, currentIndex)
-                            if (parsed != null) {
-                                result.add(parsed)
-                                currentIndex++
-                            }
+                    val v2rayArr = json.getJSONArray("v2ray")
+                    for (i in 0 until v2rayArr.length()) {
+                        val item = v2rayArr.getJSONObject(i)
+                        val link = item.optString("link")
+                        val parsed = parseSingleLink(link, sourceUrl, currentIndex)
+                        if (parsed != null) {
+                            result.add(parsed)
+                            currentIndex++
                         }
                     }
                     if (result.isNotEmpty()) return result
@@ -153,10 +159,7 @@ object ConfigParser {
                 trimmed.startsWith("vmess://", ignoreCase = true) -> parseVmess(trimmed, sourceUrl, orderIndex)
                 trimmed.startsWith("trojan://", ignoreCase = true) -> parseTrojan(trimmed, sourceUrl, orderIndex)
                 trimmed.startsWith("ss://", ignoreCase = true) -> parseShadowsocks(trimmed, sourceUrl, orderIndex)
-                trimmed.startsWith("openvpn://", ignoreCase = true) || (trimmed.contains("client") && trimmed.contains("dev tun")) -> {
-                    parseOpenVpn(trimmed, "AUTO", sourceUrl, orderIndex)
-                }
-                else -> null
+                else -> null // OpenVPN is explicitly discarded
             }
         } catch (_: Exception) {
             null
@@ -166,9 +169,20 @@ object ConfigParser {
     private fun parseVless(link: String, sourceUrl: String, orderIndex: Int): ServerConfigEntity? {
         val parsed = parseUriManual(link) ?: return null
         val security = parsed.queryParams["security"] ?: "tls"
-        val transport = parsed.queryParams["type"] ?: "tcp"
+        val transport = parsed.queryParams["type"] ?: parsed.queryParams["net"] ?: "tcp"
+        val flow = parsed.queryParams["flow"] ?: ""
+        val sni = parsed.queryParams["sni"] ?: parsed.queryParams["peer"] ?: ""
+        val pbk = parsed.queryParams["pbk"] ?: ""
+        val sid = parsed.queryParams["sid"] ?: ""
+        val fp = parsed.queryParams["fp"] ?: ""
+        val path = parsed.queryParams["path"] ?: ""
+        val serviceName = parsed.queryParams["servicename"] ?: parsed.queryParams["service_name"] ?: ""
+        val alpn = parsed.queryParams["alpn"] ?: ""
+        val headerType = parsed.queryParams["headertype"] ?: "none"
+
         val country = CountryDetector.detect("${parsed.host} ${parsed.fragment}")
-        val friendlyName = "Javad $orderIndex • اتصال ${country.nameFa}"
+        val label = if (parsed.fragment.isNotBlank()) parsed.fragment else "اتصال ${country.nameFa}"
+        val friendlyName = "Javad $orderIndex • $label"
 
         return ServerConfigEntity(
             name = friendlyName,
@@ -176,12 +190,23 @@ object ConfigParser {
             host = parsed.host,
             port = parsed.port,
             rawLink = link,
+            uuidOrPassword = parsed.userInfo,
+            flow = flow,
+            securityType = security,
+            transportType = transport,
+            sni = sni,
+            publicKey = pbk,
+            shortId = sid,
+            fingerprint = fp,
+            path = path,
+            serviceName = serviceName,
+            alpn = alpn,
+            headerType = headerType,
             countryCode = country.code,
             countryNameFa = country.nameFa,
             countryNameEn = country.nameEn,
-            securityType = security,
-            transportType = transport,
-            sourceUrl = sourceUrl
+            sourceUrl = sourceUrl,
+            isWorking = true
         )
     }
 
@@ -190,14 +215,20 @@ object ConfigParser {
         val jsonStr = decodeBase64(b64)
         if (jsonStr.isBlank()) return null
         val json = JSONObject(jsonStr)
-        val host = json.optString("add", "")
+        val host = json.optString("add", "").trim()
         if (host.isBlank()) return null
         val port = json.optInt("port", 443)
         val tls = json.optString("tls", "none")
         val net = json.optString("net", "tcp")
+        val uuid = json.optString("id", "")
+        val aid = json.optInt("aid", 0)
+        val path = json.optString("path", "")
+        val sni = json.optString("sni", json.optString("host", ""))
         val remark = json.optString("ps", "")
+
         val country = CountryDetector.detect("$host $remark")
-        val friendlyName = "Javad $orderIndex • اتصال ${country.nameFa}"
+        val label = if (remark.isNotBlank()) remark else "اتصال ${country.nameFa}"
+        val friendlyName = "Javad $orderIndex • $label"
 
         return ServerConfigEntity(
             name = friendlyName,
@@ -205,21 +236,31 @@ object ConfigParser {
             host = host,
             port = port,
             rawLink = link,
+            uuidOrPassword = uuid,
+            alterId = aid,
+            securityType = if (tls.equals("tls", ignoreCase = true)) "tls" else "none",
+            transportType = net,
+            sni = sni,
+            path = path,
             countryCode = country.code,
             countryNameFa = country.nameFa,
             countryNameEn = country.nameEn,
-            securityType = if (tls == "tls") "tls" else "none",
-            transportType = net,
-            sourceUrl = sourceUrl
+            sourceUrl = sourceUrl,
+            isWorking = true
         )
     }
 
     private fun parseTrojan(link: String, sourceUrl: String, orderIndex: Int): ServerConfigEntity? {
         val parsed = parseUriManual(link) ?: return null
         val security = parsed.queryParams["security"] ?: "tls"
-        val transport = parsed.queryParams["type"] ?: "tcp"
+        val transport = parsed.queryParams["type"] ?: parsed.queryParams["net"] ?: "tcp"
+        val sni = parsed.queryParams["sni"] ?: parsed.queryParams["peer"] ?: ""
+        val alpn = parsed.queryParams["alpn"] ?: ""
+        val path = parsed.queryParams["path"] ?: ""
+
         val country = CountryDetector.detect("${parsed.host} ${parsed.fragment}")
-        val friendlyName = "Javad $orderIndex • اتصال ${country.nameFa}"
+        val label = if (parsed.fragment.isNotBlank()) parsed.fragment else "اتصال ${country.nameFa}"
+        val friendlyName = "Javad $orderIndex • $label"
 
         return ServerConfigEntity(
             name = friendlyName,
@@ -227,36 +268,58 @@ object ConfigParser {
             host = parsed.host,
             port = parsed.port,
             rawLink = link,
+            uuidOrPassword = parsed.userInfo,
+            securityType = security,
+            transportType = transport,
+            sni = sni,
+            alpn = alpn,
+            path = path,
             countryCode = country.code,
             countryNameFa = country.nameFa,
             countryNameEn = country.nameEn,
-            securityType = security,
-            transportType = transport,
-            sourceUrl = sourceUrl
+            sourceUrl = sourceUrl,
+            isWorking = true
         )
     }
 
     private fun parseShadowsocks(link: String, sourceUrl: String, orderIndex: Int): ServerConfigEntity? {
-        val raw = link.substringAfter("ss://").substringBefore("#")
+        val raw = link.substringAfter("ss://").substringBefore("#").trim()
         val fragment = if (link.contains("#")) safeDecode(link.substringAfter("#")) else ""
-        var host = "127.0.0.1"
+
+        var host = ""
         var port = 8388
+        var methodAndPass = ""
 
         if (raw.contains("@")) {
-            val endpoint = raw.substringAfter("@")
-            host = endpoint.substringBefore(":")
-            port = endpoint.substringAfter(":").toIntOrNull() ?: 8388
+            // Format: ss://BASE64(method:password)@host:port or ss://method:password@host:port
+            val userPart = raw.substringBefore("@")
+            val endpointPart = raw.substringAfter("@")
+            val decodedUser = decodeBase64(userPart)
+            methodAndPass = if (decodedUser.contains(":")) decodedUser else userPart
+            val (h, p) = parseHostAndPort(endpointPart, 8388)
+            host = h
+            port = p
         } else {
+            // Entire link is base64: ss://BASE64(method:password@host:port)
             val decoded = decodeBase64(raw)
             if (decoded.contains("@")) {
-                val endpoint = decoded.substringAfter("@")
-                host = endpoint.substringBefore(":")
-                port = endpoint.substringAfter(":").toIntOrNull() ?: 8388
+                val userPart = decoded.substringBefore("@")
+                val endpointPart = decoded.substringAfter("@")
+                methodAndPass = userPart
+                val (h, p) = parseHostAndPort(endpointPart, 8388)
+                host = h
+                port = p
             }
         }
 
+        // Strictly reject invalid hosts (no 127.0.0.1 fallback)
+        if (host.isBlank() || host == "127.0.0.1" || host == "localhost") {
+            return null
+        }
+
         val country = CountryDetector.detect("$host $fragment")
-        val friendlyName = "Javad $orderIndex • اتصال ${country.nameFa}"
+        val label = if (fragment.isNotBlank()) fragment else "اتصال ${country.nameFa}"
+        val friendlyName = "Javad $orderIndex • $label"
 
         return ServerConfigEntity(
             name = friendlyName,
@@ -264,46 +327,14 @@ object ConfigParser {
             host = host,
             port = port,
             rawLink = link,
+            uuidOrPassword = methodAndPass,
             countryCode = country.code,
             countryNameFa = country.nameFa,
             countryNameEn = country.nameEn,
             securityType = "cipher",
             transportType = "tcp",
-            sourceUrl = sourceUrl
-        )
-    }
-
-    private fun parseOpenVpn(payload: String, countryHint: String, sourceUrl: String, orderIndex: Int): ServerConfigEntity? {
-        val decoded = if (payload.startsWith("openvpn://")) payload else decodeBase64(payload).ifBlank { payload }
-
-        var host = "openvpn.remote.net"
-        var port = 1194
-
-        for (line in decoded.lines()) {
-            val trimmed = line.trim()
-            if (trimmed.startsWith("remote ")) {
-                val parts = trimmed.split(Regex("\\s+"))
-                if (parts.size >= 2) host = parts[1]
-                if (parts.size >= 3) port = parts[2].toIntOrNull() ?: 1194
-                break
-            }
-        }
-
-        val country = CountryDetector.detect(host, countryHint)
-        val friendlyName = "Javad VPN $orderIndex • اتصال ${country.nameFa}"
-
-        return ServerConfigEntity(
-            name = friendlyName,
-            protocol = "openvpn",
-            host = host,
-            port = port,
-            rawLink = if (payload.startsWith("openvpn://")) payload else "openvpn://$host:$port#${country.nameFa}",
-            countryCode = country.code,
-            countryNameFa = country.nameFa,
-            countryNameEn = country.nameEn,
-            securityType = "tls",
-            transportType = "udp",
-            sourceUrl = sourceUrl
+            sourceUrl = sourceUrl,
+            isWorking = true
         )
     }
 

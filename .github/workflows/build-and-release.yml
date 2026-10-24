@@ -30,6 +30,14 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Ensure Pinned libv2ray Core AAR is Present
+        run: |
+          mkdir -p app/libs
+          if [ ! -f "app/libs/libv2ray.aar" ] || [ $(stat -c%s "app/libs/libv2ray.aar") -lt 10000000 ]; then
+            echo "Downloading pinned AndroidLibXrayLite v26.10.21..."
+            curl -L -o app/libs/libv2ray.aar https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.10.21/libv2ray.aar
+          fi
+
       - name: Generate Debug Keystore if missing
         run: |
           if [ ! -f "debug.keystore" ]; then

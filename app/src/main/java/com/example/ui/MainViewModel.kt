@@ -39,7 +39,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Navigation and Filtering
     val currentTab = MutableStateFlow(0) // 0: Home, 1: Servers, 2: Smart Hub, 3: Activity, 4: Settings
     val searchQuery = MutableStateFlow("")
-    val selectedProtocol = MutableStateFlow("ALL") // ALL, VLESS, VMESS, TROJAN, SS, OPENVPN
+    val selectedProtocol = MutableStateFlow("ALL") // ALL, VLESS, VMESS, TROJAN, SS
     val selectedCountry = MutableStateFlow("ALL")
     val onlyFavorites = MutableStateFlow(false)
 
@@ -202,7 +202,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             bannerMessage.value = if (count > 0) {
                 "$count کانفیگ با موفقیت به انبار محلی اضافه شد."
             } else {
-                "فرمت کانفیگ نامعتبر بود. لطفاً لینک vless, vmess, trojan, ss یا openvpn وارد کنید."
+                "فرمت کانفیگ نامعتبر بود. لطفاً لینک vless, vmess, trojan, ss یا سابسکریپشن base64 وارد کنید."
             }
         }
     }
