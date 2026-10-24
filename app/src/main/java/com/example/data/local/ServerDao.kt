@@ -34,8 +34,8 @@ interface ServerDao {
 
     @Query("""
         SELECT * FROM server_configs
-        WHERE pingMs > 0
-        ORDER BY isWorking DESC, isFavorite DESC, pingMs ASC,
+        WHERE isWorking = 1 AND pingMs > 0
+        ORDER BY isFavorite DESC, pingMs ASC,
                  failureCount ASC, successCount DESC, id ASC
         LIMIT 1
     """)
@@ -43,8 +43,8 @@ interface ServerDao {
 
     @Query("""
         SELECT * FROM server_configs
-        WHERE pingMs > 0 AND id != :excludeId
-        ORDER BY isWorking DESC, isFavorite DESC, pingMs ASC,
+        WHERE isWorking = 1 AND pingMs > 0 AND id != :excludeId
+        ORDER BY isFavorite DESC, pingMs ASC,
                  failureCount ASC, successCount DESC, id ASC
         LIMIT 1
     """)
@@ -87,7 +87,6 @@ interface ServerDao {
             "Active server limit cannot exceed ${ServerLimits.MAX_ACTIVE_CONFIGS}"
         }
 
-        // Enforce existing active pool limit before new insertions
         trimToLimit(limit)
 
         val seen = getAllServersOnce()
@@ -101,7 +100,6 @@ interface ServerDao {
             val fingerprint = ConfigFingerprint.of(candidate)
             if (!seen.add(fingerprint)) continue
 
-            // Incoming parsed/imported configs are strictly unverified candidates
             val unverified = candidate.copy(
                 isWorking = false,
                 pingMs = -1L,
@@ -135,7 +133,6 @@ interface ServerDao {
             deleteServer(victimId)
         }
 
-        // Call only after a real core / tunnel verification test passed
         val insertedId = insertServer(
             candidate.copy(isWorking = true, lastTestedTime = System.currentTimeMillis())
         )
