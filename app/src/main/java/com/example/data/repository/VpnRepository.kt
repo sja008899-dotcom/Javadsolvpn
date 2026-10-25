@@ -93,7 +93,22 @@ class VpnRepository(private val db: AppDatabase) {
                         if (body.isNotBlank()) {
                             val configs = ConfigParser.parsePayload(body, source.url)
                             if (configs.isNotEmpty()) {
-                                val inserted = db.serverDao().insertCapped(configs, ServerLimits.MAX_ACTIVE_CONFIGS)
+                                var inserted = db.serverDao().insertCapped(configs, ServerLimits.MAX_ACTIVE_CONFIGS)
+                                if (inserted == 0 && db.serverDao().getServerCountNow() >= ServerLimits.MAX_ACTIVE_CONFIGS) {
+                                    // Try replacing broken, untested or high-latency candidates
+                                    for (cand in configs.take(8)) {
+                                        if (db.serverDao().getReplaceableCandidateId() == null) break
+                                        val ping = ServerProber.probe(cand, 2000)
+                                        if (ping > 0) {
+                                            if (db.serverDao().insertVerifiedReplacingBroken(
+                                                cand.copy(pingMs = ping, isWorking = true, lastTestedTime = System.currentTimeMillis()),
+                                                ServerLimits.MAX_ACTIVE_CONFIGS
+                                            )) {
+                                                inserted++
+                                            }
+                                        }
+                                    }
+                                }
                                 totalAdded += inserted
                                 if (inserted > 0) successfulSources++
                                 db.sourceDao().updateFetchStatus(

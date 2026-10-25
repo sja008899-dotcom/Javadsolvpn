@@ -11,6 +11,7 @@ class JavadApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        extractCoreAssets()
         try {
             Libv2ray.initCoreEnv(filesDir.absolutePath, "")
         } catch (_: Throwable) {}
@@ -20,6 +21,22 @@ class JavadApplication : Application() {
             try {
                 AppDatabase.getInstance(this@JavadApplication).seedInitialDataIfNeeded()
             } catch (_: Exception) {}
+        }
+    }
+
+    private fun extractCoreAssets() {
+        val assetNames = listOf("geoip.dat", "geosite.dat", "geoip-only-cn-private.dat")
+        for (name in assetNames) {
+            val destFile = java.io.File(filesDir, name)
+            if (!destFile.exists() || destFile.length() == 0L) {
+                try {
+                    assets.open(name).use { input ->
+                        java.io.FileOutputStream(destFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
         }
     }
 }

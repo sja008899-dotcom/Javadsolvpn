@@ -117,9 +117,26 @@ class JavadVpnService : VpnService() {
     private fun initCore() {
         if (!isCoreEnvInitialized) {
             try {
+                extractCoreAssets()
                 Libv2ray.initCoreEnv(filesDir.absolutePath, "")
                 isCoreEnvInitialized = true
             } catch (_: Throwable) {}
+        }
+    }
+
+    private fun extractCoreAssets() {
+        val assetNames = listOf("geoip.dat", "geosite.dat", "geoip-only-cn-private.dat")
+        for (name in assetNames) {
+            val destFile = java.io.File(filesDir, name)
+            if (!destFile.exists() || destFile.length() == 0L) {
+                try {
+                    assets.open(name).use { input ->
+                        java.io.FileOutputStream(destFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -291,8 +308,19 @@ class JavadVpnService : VpnService() {
     }
 
     private suspend fun verifyLiveInternet(): Boolean = withContext(Dispatchers.IO) {
+        // 1. Direct core delay measurement if supported by CoreController
+        try {
+            val delay = coreController?.measureDelay("https://www.gstatic.com/generate_204") ?: -1L
+            if (delay > 0) {
+                return@withContext true
+            }
+        } catch (_: Exception) {}
+
+        // 2. HTTP/HTTPS probe through proxy loopback
         val testUrls = listOf(
+            "http://www.gstatic.com/generate_204",
             "https://www.gstatic.com/generate_204",
+            "http://cp.cloudflare.com/generate_204",
             "https://cp.cloudflare.com/generate_204",
             "https://connectivitycheck.gstatic.com/generate_204"
         )
@@ -321,7 +349,7 @@ class JavadVpnService : VpnService() {
                     } catch (_: Exception) {}
                 }
             }
-            if (attempt < 3) delay(800)
+            if (attempt < 3) delay(600)
         }
         false
     }

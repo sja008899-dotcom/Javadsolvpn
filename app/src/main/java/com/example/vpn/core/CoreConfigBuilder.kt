@@ -55,18 +55,18 @@ object CoreConfigBuilder {
         }
         inbounds.put(httpInbound)
 
-        // Dokodemo-door inbound for direct TUN capture
+        // Native TUN inbound for direct Android VpnService file descriptor processing
         val tunInbound = JSONObject().apply {
             put("tag", "tun-in")
-            put("port", 0)
-            put("protocol", "dokodemo-door")
+            put("protocol", "tun")
             put("settings", JSONObject().apply {
-                put("network", "tcp,udp")
-                put("followRedirect", true)
+                put("name", "tun0")
+                put("MTU", 1500)
+                put("userLevel", 0)
             })
             put("sniffing", JSONObject().apply {
                 put("enabled", true)
-                put("destOverride", JSONArray().put("http").put("tls"))
+                put("destOverride", JSONArray().put("http").put("tls").put("quic"))
             })
         }
         inbounds.put(tunInbound)
@@ -102,11 +102,19 @@ object CoreConfigBuilder {
             put("domainStrategy", "IPIfNonMatch")
             val rules = JSONArray()
 
-            // Direct private IPs (LAN bypass)
+            // Direct private IPs (LAN bypass without requiring external geoip.dat)
             val directRule = JSONObject().apply {
                 put("type", "field")
                 put("outboundTag", "direct")
-                put("ip", JSONArray().put("geoip:private"))
+                val lanCidrs = JSONArray().apply {
+                    put("10.0.0.0/8")
+                    put("172.16.0.0/12")
+                    put("192.168.0.0/16")
+                    put("127.0.0.0/8")
+                    put("fc00::/7")
+                    put("fe80::/10")
+                }
+                put("ip", lanCidrs)
             }
             rules.put(directRule)
 

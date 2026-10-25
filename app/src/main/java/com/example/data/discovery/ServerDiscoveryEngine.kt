@@ -91,13 +91,6 @@ class ServerDiscoveryEngine(private val db: AppDatabase) {
 
         var sourceIndex = 0
         for (source in sources) {
-            val currentCount = db.serverDao().getServerCountNow()
-            val replaceableBroken = db.serverDao().getReplaceableBrokenId()
-            if (currentCount >= ServerLimits.MAX_ACTIVE_CONFIGS && replaceableBroken == null) {
-                addLog("SUCCESS", "ظرفیت مخزن فعال تکمیل و تمام ${ServerLimits.MAX_ACTIVE_CONFIGS} سرور در وضعیت سالم هستند.")
-                break
-            }
-
             sourceIndex++
             _progress.value = _progress.value.copy(
                 currentSource = source.name,
@@ -150,9 +143,12 @@ class ServerDiscoveryEngine(private val db: AppDatabase) {
                                         _progress.value = _progress.value.copy(latestDiscovered = sample)
                                     }
                                 } else {
-                                    // Pool is at 12; probe candidates to replace broken inactive nodes
+                                    // Pool is at 12; probe top candidates to replace broken, untested, or high-latency nodes
+                                    var probesInBatch = 0
                                     for (cand in validUnique) {
-                                        if (db.serverDao().getReplaceableBrokenId() == null) break
+                                        if (probesInBatch >= 8) break // Limit probes per source for high speed
+                                        if (db.serverDao().getReplaceableCandidateId() == null) break
+                                        probesInBatch++
                                         val ping = com.example.data.prober.ServerProber.probe(cand, 2000)
                                         if (ping > 0L) {
                                             val replaced = db.serverDao().insertVerifiedReplacingBroken(
@@ -161,7 +157,7 @@ class ServerDiscoveryEngine(private val db: AppDatabase) {
                                             )
                                             if (replaced) {
                                                 totalInserted++
-                                                addLog("SUCCESS", "⚡ سرور سالم با پینگ ${ping}ms جایگزین سرور معیوب قبلی شد.")
+                                                addLog("SUCCESS", "⚡ سرور آنلاین با پینگ ${ping}ms جایگزین شد.")
                                                 _progress.value = _progress.value.copy(latestDiscovered = cand)
                                             }
                                         }
@@ -173,7 +169,7 @@ class ServerDiscoveryEngine(private val db: AppDatabase) {
                                 source.id,
                                 System.currentTimeMillis(),
                                 validUnique.size,
-                                "موفق ($totalInserted نود افزوده شد)"
+                                "موفق ($totalInserted نود افزوده یا به‌روز شد)"
                             )
                         } else {
                             addLog("WARN", "پاسخ خالی از منبع ${source.name}")

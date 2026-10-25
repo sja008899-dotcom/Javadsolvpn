@@ -72,6 +72,21 @@ interface ServerDao {
     suspend fun getReplaceableBrokenId(): Long?
 
     @Query("""
+        SELECT id FROM server_configs
+        WHERE isFavorite = 0 AND isManual = 0
+        ORDER BY
+            CASE WHEN isWorking = 0 THEN 0
+                 WHEN pingMs <= 0 THEN 1
+                 ELSE 2 END ASC,
+            failureCount DESC,
+            CASE WHEN pingMs > 0 THEN pingMs ELSE 999999 END DESC,
+            lastTestedTime ASC,
+            id ASC
+        LIMIT 1
+    """)
+    suspend fun getReplaceableCandidateId(): Long?
+
+    @Query("""
         DELETE FROM server_configs
         WHERE id NOT IN (
             SELECT id FROM server_configs
@@ -142,15 +157,19 @@ interface ServerDao {
             }) return false
 
         if (getServerCountNow() >= limit) {
-            val victimId = getReplaceableBrokenId() ?: return false
+            val victimId = getReplaceableCandidateId() ?: return false
             deleteServer(victimId)
         }
 
         val insertedId = insertServer(
-            candidate.copy(isWorking = true, lastTestedTime = System.currentTimeMillis())
+            candidate.copy(
+                isWorking = true,
+                pingMs = if (candidate.pingMs > 0) candidate.pingMs else 50L,
+                lastTestedTime = System.currentTimeMillis()
+            )
         )
         if (insertedId == -1L) {
-            error("Verified candidate insert conflicted; transaction rolled back")
+            return false
         }
         return true
     }
