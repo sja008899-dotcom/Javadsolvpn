@@ -126,17 +126,24 @@ object ConfigParser {
             } catch (_: Exception) {}
         }
 
-        // 2. Try Base64 Subscription decoding
+        // 2. Try Base64 Subscription decoding if content is base64 encoded or lacks direct protocol schemes
         var textToParse = trimmed
-        if (!trimmed.contains("\n") && !trimmed.contains("://") && trimmed.length > 20) {
+        if (!textToParse.contains("://") || (!textToParse.contains("vless://") && !textToParse.contains("vmess://") && !textToParse.contains("trojan://") && !textToParse.contains("ss://"))) {
             val decoded = decodeBase64(trimmed)
-            if (decoded.contains("://") || decoded.contains("\n")) {
+            if (decoded.contains("://")) {
                 textToParse = decoded
             }
         }
 
-        // 3. Line by line parsing
-        val lines = textToParse.lines()
+        // 3. Normalize link separators: guarantee each protocol link begins on a clean line
+        val normalized = textToParse
+            .replace("vless://", "\nvless://")
+            .replace("vmess://", "\nvmess://")
+            .replace("trojan://", "\ntrojan://")
+            .replace("ss://", "\nss://")
+
+        // 4. Line by line parsing
+        val lines = normalized.lines()
         var index = startIndex
         for (rawLine in lines) {
             val line = rawLine.trim()
@@ -216,11 +223,11 @@ object ConfigParser {
         if (jsonStr.isBlank()) return null
         val json = JSONObject(jsonStr)
         val host = json.optString("add", "").trim()
-        if (host.isBlank()) return null
         val port = json.optInt("port", 443)
+        val uuid = json.optString("id", "").trim()
+        if (host.isBlank() || host.contains(" ") || port !in 1..65535 || uuid.isBlank()) return null
         val tls = json.optString("tls", "none")
         val net = json.optString("net", "tcp")
-        val uuid = json.optString("id", "")
         val aid = json.optInt("aid", 0)
         val path = json.optString("path", "")
         val sni = json.optString("sni", json.optString("host", ""))

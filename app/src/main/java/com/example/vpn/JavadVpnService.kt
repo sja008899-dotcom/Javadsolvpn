@@ -225,8 +225,8 @@ class JavadVpnService : VpnService() {
                 coreController = controller
                 controller.startLoop(configJson, pfd.fd)
 
-                // Yield to allow core to establish listener
-                delay(800)
+                // Yield to allow core to establish listener and initialize outbound tunnel
+                delay(1200)
 
                 // 5. Genuine Live Connectivity Verification (generate_204)
                 val isAlive = verifyLiveInternet()
@@ -239,13 +239,14 @@ class JavadVpnService : VpnService() {
 
                     // Auto-failover: try next candidate
                     val nextCandidate = db.serverDao().getNextCandidate(targetServer.id)
-                    if (nextCandidate != null && !triedServersInSession.contains(nextCandidate.id)) {
-                        _errorMessage.value = "سرور ${targetServer.name} پاسخ نداد؛ در حال انتقال به سرور بعدی…"
+                    if (nextCandidate != null && !triedServersInSession.contains(nextCandidate.id) && triedServersInSession.size < 4) {
+                        _errorMessage.value = "سرور ${targetServer.name} پاسخ نداد؛ در حال اتصال به ${nextCandidate.name}…"
+                        delay(600)
                         initiateConnection(nextCandidate.id, dns)
                         return@launch
                     } else {
                         _vpnStatus.value = VpnStatus.ERROR
-                        _errorMessage.value = "عدم پاسخ سرور در تست اتصال واقعی (generate_204). تونل جهت جلوگیری از قطعی اینترنت بسته شد."
+                        _errorMessage.value = "عدم برقراری ارتباط پایدار با سرور (کد 204 دریافت نشد). لطفاً سرور دیگری را امتحان کنید یا پینگ بگیرید."
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelf()
                         return@launch
@@ -292,7 +293,8 @@ class JavadVpnService : VpnService() {
     private suspend fun verifyLiveInternet(): Boolean = withContext(Dispatchers.IO) {
         val testUrls = listOf(
             "https://www.gstatic.com/generate_204",
-            "https://cp.cloudflare.com/generate_204"
+            "https://cp.cloudflare.com/generate_204",
+            "https://connectivitycheck.gstatic.com/generate_204"
         )
         // Strictly route verification requests through the core's proxy inbounds
         // Proves that traffic is routed through the proxy outbound and not through unproxied direct internet
@@ -303,20 +305,23 @@ class JavadVpnService : VpnService() {
             verificationClient.newBuilder().proxy(socksProxy).build()
         )
 
-        for (client in clients) {
-            for (url in testUrls) {
-                try {
-                    val req = Request.Builder()
-                        .url(url)
-                        .header("User-Agent", "Mozilla/5.0 Javadsolvpn/2.0")
-                        .build()
-                    client.newCall(req).execute().use { resp ->
-                        if (resp.code == 204 || resp.code == 200) {
-                            return@withContext true
+        for (attempt in 1..3) {
+            for (client in clients) {
+                for (url in testUrls) {
+                    try {
+                        val req = Request.Builder()
+                            .url(url)
+                            .header("User-Agent", "Mozilla/5.0 Javadsolvpn/2.0")
+                            .build()
+                        client.newCall(req).execute().use { resp ->
+                            if (resp.code == 204 || resp.code == 200) {
+                                return@withContext true
+                            }
                         }
-                    }
-                } catch (_: Exception) {}
+                    } catch (_: Exception) {}
+                }
             }
+            if (attempt < 3) delay(800)
         }
         false
     }

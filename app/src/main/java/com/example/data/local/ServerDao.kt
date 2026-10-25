@@ -34,18 +34,31 @@ interface ServerDao {
 
     @Query("""
         SELECT * FROM server_configs
-        WHERE isWorking = 1 AND pingMs > 0
-        ORDER BY isFavorite DESC, pingMs ASC,
-                 failureCount ASC, successCount DESC, id ASC
+        ORDER BY
+            isFavorite DESC,
+            CASE WHEN isWorking = 1 AND pingMs > 0 THEN 0
+                 WHEN failureCount == 0 THEN 1
+                 ELSE 2 END ASC,
+            CASE WHEN pingMs > 0 THEN pingMs ELSE 999999 END ASC,
+            failureCount ASC,
+            successCount DESC,
+            id ASC
         LIMIT 1
     """)
     suspend fun getBestCandidate(): ServerConfigEntity?
 
     @Query("""
         SELECT * FROM server_configs
-        WHERE isWorking = 1 AND pingMs > 0 AND id != :excludeId
-        ORDER BY isFavorite DESC, pingMs ASC,
-                 failureCount ASC, successCount DESC, id ASC
+        WHERE id != :excludeId
+        ORDER BY
+            isFavorite DESC,
+            CASE WHEN isWorking = 1 AND pingMs > 0 THEN 0
+                 WHEN failureCount == 0 THEN 1
+                 ELSE 2 END ASC,
+            CASE WHEN pingMs > 0 THEN pingMs ELSE 999999 END ASC,
+            failureCount ASC,
+            successCount DESC,
+            id ASC
         LIMIT 1
     """)
     suspend fun getNextCandidate(excludeId: Long): ServerConfigEntity?

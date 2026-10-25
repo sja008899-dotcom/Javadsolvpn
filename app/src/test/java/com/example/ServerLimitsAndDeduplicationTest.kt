@@ -204,4 +204,44 @@ class ServerLimitsAndDeduplicationTest {
         assertNotNull(verifiedStored)
         assertTrue(verifiedStored!!.isWorking)
     }
+
+    @Test
+    fun preloadedConfigs_containsExactlyTwelveServers() {
+        assertEquals(12, com.example.data.local.PreloadedConfigs.DEFAULT_SERVERS.size)
+        assertEquals(12, ServerLimits.MAX_ACTIVE_CONFIGS)
+    }
+
+    @Test
+    fun getBestCandidate_selectsCandidateEvenWhenUntested() = runBlocking {
+        // Initially pool is empty, should return null
+        assertNull(db.serverDao().getBestCandidate())
+
+        // Insert unverified server (isWorking = false, ping = -1)
+        val candidate = ServerConfigEntity(
+            name = "Untested Node",
+            protocol = "vless",
+            host = "untested.com",
+            port = 443,
+            rawLink = "vless://u@untested.com:443",
+            uuidOrPassword = "u",
+            isWorking = false,
+            pingMs = -1L
+        )
+        db.serverDao().insertCapped(listOf(candidate), ServerLimits.MAX_ACTIVE_CONFIGS)
+
+        val best = db.serverDao().getBestCandidate()
+        assertNotNull("getBestCandidate must not be null when candidate exists", best)
+        assertEquals("untested.com", best!!.host)
+    }
+
+    @Test
+    fun seedInitialDataIfNeeded_populatesSourcesAndServers() = runBlocking {
+        assertEquals(0, db.sourceDao().getEnabledSources().size)
+        assertEquals(0, db.serverDao().getServerCountNow())
+
+        db.seedInitialDataIfNeeded()
+
+        assertTrue(db.sourceDao().getEnabledSources().isNotEmpty())
+        assertEquals(12, db.serverDao().getServerCountNow())
+    }
 }

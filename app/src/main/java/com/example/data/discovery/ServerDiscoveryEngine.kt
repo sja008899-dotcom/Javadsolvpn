@@ -67,7 +67,13 @@ class ServerDiscoveryEngine(private val db: AppDatabase) {
         // Enforce 12-server cap initially on existing records
         db.serverDao().trimToLimit(ServerLimits.MAX_ACTIVE_CONFIGS)
 
-        val sources = db.sourceDao().getEnabledSources()
+        db.seedInitialDataIfNeeded()
+        var sources = db.sourceDao().getEnabledSources()
+        if (sources.isEmpty()) {
+            db.sourceDao().insertSources(com.example.data.local.PreloadedConfigs.DEFAULT_SOURCES)
+            sources = db.sourceDao().getEnabledSources()
+        }
+
         _progress.value = DiscoveryProgress(
             isScanning = true,
             totalSources = sources.size,
@@ -86,8 +92,9 @@ class ServerDiscoveryEngine(private val db: AppDatabase) {
         var sourceIndex = 0
         for (source in sources) {
             val currentCount = db.serverDao().getServerCountNow()
-            if (currentCount >= ServerLimits.MAX_ACTIVE_CONFIGS) {
-                addLog("SUCCESS", "ظرفیت مخزن فعال تکمیل شد (${ServerLimits.MAX_ACTIVE_CONFIGS} سرور). کاوش متوقف گردید.")
+            val replaceableBroken = db.serverDao().getReplaceableBrokenId()
+            if (currentCount >= ServerLimits.MAX_ACTIVE_CONFIGS && replaceableBroken == null) {
+                addLog("SUCCESS", "ظرفیت مخزن فعال تکمیل و تمام ${ServerLimits.MAX_ACTIVE_CONFIGS} سرور در وضعیت سالم هستند.")
                 break
             }
 
@@ -133,12 +140,32 @@ class ServerDiscoveryEngine(private val db: AppDatabase) {
                             }
 
                             if (validUnique.isNotEmpty()) {
-                                val inserted = db.serverDao().insertCapped(validUnique, ServerLimits.MAX_ACTIVE_CONFIGS)
-                                totalInserted += inserted
-                                if (inserted > 0) {
-                                    val sample = validUnique.first()
-                                    addLog("SUCCESS", "✅ $inserted نود جدید در مخزن فعال (سقف ${ServerLimits.MAX_ACTIVE_CONFIGS}) ذخیره شد.")
-                                    _progress.value = _progress.value.copy(latestDiscovered = sample)
+                                val activeCount = db.serverDao().getServerCountNow()
+                                if (activeCount < ServerLimits.MAX_ACTIVE_CONFIGS) {
+                                    val inserted = db.serverDao().insertCapped(validUnique, ServerLimits.MAX_ACTIVE_CONFIGS)
+                                    totalInserted += inserted
+                                    if (inserted > 0) {
+                                        val sample = validUnique.first()
+                                        addLog("SUCCESS", "✅ $inserted نود جدید در مخزن فعال (سقف ${ServerLimits.MAX_ACTIVE_CONFIGS}) ذخیره شد.")
+                                        _progress.value = _progress.value.copy(latestDiscovered = sample)
+                                    }
+                                } else {
+                                    // Pool is at 12; probe candidates to replace broken inactive nodes
+                                    for (cand in validUnique) {
+                                        if (db.serverDao().getReplaceableBrokenId() == null) break
+                                        val ping = com.example.data.prober.ServerProber.probe(cand, 2000)
+                                        if (ping > 0L) {
+                                            val replaced = db.serverDao().insertVerifiedReplacingBroken(
+                                                cand.copy(pingMs = ping, isWorking = true, lastTestedTime = System.currentTimeMillis()),
+                                                ServerLimits.MAX_ACTIVE_CONFIGS
+                                            )
+                                            if (replaced) {
+                                                totalInserted++
+                                                addLog("SUCCESS", "⚡ سرور سالم با پینگ ${ping}ms جایگزین سرور معیوب قبلی شد.")
+                                                _progress.value = _progress.value.copy(latestDiscovered = cand)
+                                            }
+                                        }
+                                    }
                                 }
                             }
 

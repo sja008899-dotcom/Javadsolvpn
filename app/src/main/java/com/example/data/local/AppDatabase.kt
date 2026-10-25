@@ -68,38 +68,30 @@ abstract class AppDatabase : RoomDatabase() {
                 .addMigrations(MIGRATION_2_3, MIGRATION_1_3)
                 .fallbackToDestructiveMigration()
                 .addCallback(object : Callback() {
-                    override fun onCreate(db: SupportSQLiteDatabase) {
-                        super.onCreate(db)
+                    override fun onOpen(db: SupportSQLiteDatabase) {
+                        super.onOpen(db)
                         CoroutineScope(Dispatchers.IO).launch {
-                            val preloadedSources = listOf(
-                                DiscoverySourceEntity(
-                                    name = "هاب اختصاصی جواد (Javad Hub)",
-                                    url = "https://raw.githubusercontent.com/yebekhe/TVC/main/subscriptions/xray/normal/mix",
-                                    isEnabled = true
-                                ),
-                                DiscoverySourceEntity(
-                                    name = "منبع عمومی کانفیگ‌های پرسرعت VLESS",
-                                    url = "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/Sub1.txt",
-                                    isEnabled = true
-                                ),
-                                DiscoverySourceEntity(
-                                    name = "مجموعه Trojan و Shadowsocks آزاد",
-                                    url = "https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt",
-                                    isEnabled = true
-                                ),
-                                DiscoverySourceEntity(
-                                    name = "منبع نودهای فعال V2Ray و SS",
-                                    url = "https://raw.githubusercontent.com/freefq/free/master/v2",
-                                    isEnabled = true
-                                )
-                            )
-                            getInstance(context).sourceDao().insertSources(preloadedSources)
+                            try {
+                                INSTANCE?.seedInitialDataIfNeeded()
+                            } catch (_: Exception) {}
                         }
                     }
                 }).build()
                 INSTANCE = instance
                 instance
             }
+        }
+    }
+
+    suspend fun seedInitialDataIfNeeded() {
+        val enabledSources = sourceDao().getEnabledSources()
+        if (enabledSources.isEmpty()) {
+            sourceDao().insertSources(PreloadedConfigs.DEFAULT_SOURCES)
+        }
+
+        val serverCount = serverDao().getServerCountNow()
+        if (serverCount == 0) {
+            serverDao().insertCapped(PreloadedConfigs.DEFAULT_SERVERS, ServerLimits.MAX_ACTIVE_CONFIGS)
         }
     }
 }

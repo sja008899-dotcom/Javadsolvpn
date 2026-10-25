@@ -71,7 +71,12 @@ class VpnRepository(private val db: AppDatabase) {
     }
 
     suspend fun refreshAllSources(): Pair<Int, Int> = withContext(Dispatchers.IO) {
-        val sources = db.sourceDao().getEnabledSources()
+        db.seedInitialDataIfNeeded()
+        var sources = db.sourceDao().getEnabledSources()
+        if (sources.isEmpty()) {
+            db.sourceDao().insertSources(com.example.data.local.PreloadedConfigs.DEFAULT_SOURCES)
+            sources = db.sourceDao().getEnabledSources()
+        }
         var totalAdded = 0
         var successfulSources = 0
 
