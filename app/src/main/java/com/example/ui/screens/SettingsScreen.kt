@@ -285,7 +285,8 @@ fun SettingsScreen(
         SafeModeDiagnosticDialog(
             report = diagnosticReport,
             onRunDiagnostic = { viewModel.startSafeModeDiagnostic(context) },
-            onDismiss = { viewModel.dismissDiagnosticDialog() }
+            onDismiss = { viewModel.dismissDiagnosticDialog() },
+            onTestNextServer = { viewModel.testNextServerInDiagnostic(context) }
         )
     }
 }

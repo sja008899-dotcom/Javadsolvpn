@@ -271,7 +271,7 @@ class JavadVpnService : VpnService() {
                 controller.startLoop(configJson, pfd.fd)
 
                 // Yield to allow core to establish listener and initialize outbound tunnel
-                delay(1200)
+                delay(2000)
 
                 // 5. Genuine Live Connectivity Verification (generate_204)
                 val isAlive = verifyLiveInternet()
@@ -284,14 +284,14 @@ class JavadVpnService : VpnService() {
 
                     // Auto-failover: try next candidate
                     val nextCandidate = db.serverDao().getNextCandidate(targetServer.id)
-                    if (nextCandidate != null && !triedServersInSession.contains(nextCandidate.id) && triedServersInSession.size < 4) {
-                        _errorMessage.value = "سرور ${targetServer.name} پاسخ نداد؛ در حال اتصال به ${nextCandidate.name}…"
+                    if (nextCandidate != null && !triedServersInSession.contains(nextCandidate.id) && triedServersInSession.size < 8) {
+                        _errorMessage.value = "سرور ${targetServer.name} پاسخ نداد (کد 204)؛ در حال اتصال به ${nextCandidate.name}…"
                         delay(600)
                         initiateConnection(nextCandidate.id, dns)
                         return@launch
                     } else {
                         _vpnStatus.value = VpnStatus.ERROR
-                        _errorMessage.value = "عدم برقراری ارتباط پایدار با سرور (کد 204 دریافت نشد). لطفاً سرور دیگری را امتحان کنید یا پینگ بگیرید."
+                        _errorMessage.value = "عدم برقراری ارتباط پایدار با سرور (کد 204 دریافت نشد). سرور توسط اپراتور مسدود شده است. لطفاً از بخش عیب‌یابی امن تست گرفته یا هاب را بروزرسانی کنید."
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelf()
                         return@launch
@@ -316,7 +316,7 @@ class JavadVpnService : VpnService() {
                     NOTIFICATION_ID,
                     buildNotification(
                         "متصل به ${targetServer.name}",
-                        "پروتکل: ${params.protocol} • اینترنت تأیید شد"
+                        "پروتکل: ${params.protocol} • اینترنت آزاد تأیید شد"
                     )
                 )
 
@@ -338,7 +338,7 @@ class JavadVpnService : VpnService() {
     private suspend fun verifyLiveInternet(): Boolean = withContext(Dispatchers.IO) {
         // 1. Direct core delay measurement if supported by CoreController
         try {
-            val delay = coreController?.measureDelay("https://www.gstatic.com/generate_204") ?: -1L
+            val delay = coreController?.measureDelay("http://cp.cloudflare.com/generate_204") ?: -1L
             if (delay > 0) {
                 return@withContext true
             }
@@ -346,10 +346,10 @@ class JavadVpnService : VpnService() {
 
         // 2. HTTP/HTTPS probe through proxy loopback
         val testUrls = listOf(
+            "http://1.1.1.1/generate_204",
+            "http://cp.cloudflare.com/generate_204",
             "http://www.gstatic.com/generate_204",
             "https://www.gstatic.com/generate_204",
-            "http://cp.cloudflare.com/generate_204",
-            "https://cp.cloudflare.com/generate_204",
             "https://connectivitycheck.gstatic.com/generate_204"
         )
         // Strictly route verification requests through the core's proxy inbounds

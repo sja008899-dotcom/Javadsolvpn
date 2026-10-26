@@ -32,6 +32,13 @@ data class SafeModeDiagnosticReport(
     val coreReturnCode: Long? = null,
     val handshakeResponseCode: Int = -1,
     val handshakeLatencyMs: Long = -1L,
+    val targetServerName: String = "",
+    val tcpReachable: Boolean = false,
+    val tcpPingMs: Long = -1L,
+    val internetCode204Passed: Boolean = false,
+    val internetLatencyMs: Long = -1L,
+    val nextCandidateId: Long? = null,
+    val nextCandidateName: String? = null,
     val steps: List<DiagnosticStepItem> = emptyList(),
     val logs: List<DiagnosticLog> = emptyList(),
     val summary: String = ""

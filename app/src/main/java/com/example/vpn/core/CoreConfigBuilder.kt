@@ -99,7 +99,9 @@ object CoreConfigBuilder {
 
         // 4. Routing
         val routing = JSONObject().apply {
-            put("domainStrategy", "IPIfNonMatch")
+            // "AsIs" prevents client-side DNS lookup deadlock in censored networks;
+            // domain requests are passed directly to the remote proxy server to resolve.
+            put("domainStrategy", "AsIs")
             val rules = JSONArray()
 
             // Direct private IPs (LAN bypass without requiring external geoip.dat)
@@ -132,7 +134,12 @@ object CoreConfigBuilder {
 
         // 5. DNS
         val dns = JSONObject().apply {
-            put("servers", JSONArray().put("1.1.1.1").put("8.8.8.8").put("localhost"))
+            put("servers", JSONArray().apply {
+                put("https+local://1.1.1.1/dns-query")
+                put("1.1.1.1")
+                put("8.8.8.8")
+                put("localhost")
+            })
         }
         root.put("dns", dns)
 

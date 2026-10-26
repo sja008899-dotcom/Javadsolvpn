@@ -254,6 +254,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun testNextServerInDiagnostic(context: Context) {
+        val nextId = diagnosticReport.value.nextCandidateId ?: return
+        viewModelScope.launch {
+            val nextServer = db.serverDao().getServerById(nextId)
+            if (nextServer != null) {
+                selectedServer.value = nextServer
+                startSafeModeDiagnostic(context, nextServer)
+            }
+        }
+    }
+
     fun dismissDiagnosticDialog() {
         showDiagnosticDialog.value = false
     }

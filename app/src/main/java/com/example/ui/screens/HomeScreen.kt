@@ -369,7 +369,8 @@ fun HomeScreen(
         SafeModeDiagnosticDialog(
             report = diagnosticReport,
             onRunDiagnostic = { viewModel.startSafeModeDiagnostic(context, currentDisplayServer) },
-            onDismiss = { viewModel.dismissDiagnosticDialog() }
+            onDismiss = { viewModel.dismissDiagnosticDialog() },
+            onTestNextServer = { viewModel.testNextServerInDiagnostic(context) }
         )
     }
 }

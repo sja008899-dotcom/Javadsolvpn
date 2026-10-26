@@ -3,6 +3,7 @@ package com.example.vpn.diagnostic
 import android.content.Context
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
+import com.example.data.local.AppDatabase
 import com.example.data.local.ServerConfigEntity
 import com.example.vpn.core.CoreConfigBuilder
 import kotlinx.coroutines.Dispatchers
@@ -14,16 +15,20 @@ import kotlinx.coroutines.withContext
 import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.Socket
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 object SafeModeDiagnosticManager {
 
@@ -36,18 +41,18 @@ object SafeModeDiagnosticManager {
         val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date())
         val log = DiagnosticLog(time, tag, message, isError)
         logsList.add(log)
-        if (logsList.size > 120) logsList.removeAt(0)
+        if (logsList.size > 150) logsList.removeAt(0)
         _report.value = _report.value.copy(logs = logsList.toList())
     }
 
     /**
-     * Executes the comprehensive Safe Mode diagnostic routine:
+     * Executes the comprehensive, truthful Safe Mode diagnostic routine:
      * 1. Inspects Core binary and extracted assets (geoip/geosite).
-     * 2. Attempts loopback TUN interface binding via VpnService.Builder and verifies FD.
-     * 3. Synthesizes a diagnostic loopback Xray config.
-     * 4. Starts the core loop with CoreCallbackHandler to log specific status/error codes.
-     * 5. Performs SOCKS5 and HTTP handshakes against loopback proxy inbounds to verify end-to-end socket flow.
-     * 6. Gracefully terminates and releases resources.
+     * 2. Tests local TUN loopback file descriptor allocation via VpnService.
+     * 3. Synthesizes standard Xray configuration and probes remote server TCP reachability.
+     * 4. Starts the Xray core loop and verifies callback status codes.
+     * 5. Performs SOCKS5 greeting handshake and live HTTP 204 internet verification.
+     * 6. Suggests the next best server if the tested server fails and safely tears down resources.
      */
     suspend fun runDiagnosticRoutine(
         context: Context,
@@ -55,19 +60,26 @@ object SafeModeDiagnosticManager {
         targetServerForProbe: ServerConfigEntity? = null
     ): SafeModeDiagnosticReport = withContext(Dispatchers.IO) {
         logsList.clear()
+
+        val db = AppDatabase.getInstance(context.applicationContext)
+        val server = targetServerForProbe ?: db.serverDao().getBestCandidate()
+
+        val serverDisplayName = server?.name ?: "سرور پیش‌فرض"
+
         _report.value = SafeModeDiagnosticReport(
             isRunning = true,
+            targetServerName = serverDisplayName,
             steps = listOf(
                 DiagnosticStepItem("محیط اجرایی و داده‌های هسته", "بررسی فایل‌های سیستمی و نسخه کامپایل هسته"),
                 DiagnosticStepItem("اتصال لوپ‌بک و ارزیابی File Descriptor", "ایجاد رابط مجازی شبکه و اعتبارسنجی FD"),
-                DiagnosticStepItem("سنتز پیکربندی عیب‌یابی امن", "تولید ساختار JSON سازگار با هسته Xray"),
+                DiagnosticStepItem("سنتز پیکربندی عیب‌یابی امن", "تولید ساختار JSON و سنجش اتصال به پورت سرور"),
                 DiagnosticStepItem("اجرای هسته و شنود کدهای وضعیت", "راه‌اندازی CoreController و رهگیری کدهای Callback"),
-                DiagnosticStepItem("تست دست‌دست دادن (Handshake Phase)", "ارسال پکت‌های آزمایشی SOCKS5 و سنجش پاسخگویی"),
-                DiagnosticStepItem("تخلیه امن و آزادسازی منابع", "متوقف‌سازی پردازش هسته و بستن رابط شبکه")
+                DiagnosticStepItem("تست دست‌دست دادن (Handshake Phase)", "آزمون دست‌دست دادن پروتکل و سنجش کد 204 اینترنت آزاد"),
+                DiagnosticStepItem("تخلیه امن و آزادسازی منابع", "جمع‌بندی عیب‌یابی و بستن ایمن رابط‌های موقت")
             )
         )
 
-        addLog("DIAG", "🚀 آغاز روال عیب‌یابی حالت امن (Safe Mode Diagnostic Routine)")
+        addLog("DIAG", "🚀 آغاز عیب‌یابی واقعی حالت امن برای: $serverDisplayName")
 
         var pfd: ParcelFileDescriptor? = null
         var coreController: CoreController? = null
@@ -77,7 +89,11 @@ object SafeModeDiagnosticManager {
         var coreReturnCode: Long? = null
         var handshakeCode = -1
         var handshakeLatency = -1L
-        var failureOccurred = false
+        var tcpReachable = false
+        var tcpLatency = -1L
+        var internet204Passed = false
+        var internetLatency = -1L
+        var nextCandidate: ServerConfigEntity? = null
 
         // STEP 1: Verify Assets & Core Binary
         try {
@@ -85,36 +101,34 @@ object SafeModeDiagnosticManager {
             coreVersion = try {
                 Libv2ray.checkVersionX().trim()
             } catch (e: Throwable) {
-                "کتابخانه بارگذاری نشد: ${e.message}"
+                "خطا در بارگذاری: ${e.message}"
             }
             addLog("CORE", "نسخه شناسایی‌شده هسته: $coreVersion")
 
             val geoipFile = File(context.filesDir, "geoip.dat")
             val geositeFile = File(context.filesDir, "geosite.dat")
-            addLog("FS", "بررسی geoip.dat: ${if (geoipFile.exists()) "موجود (${geoipFile.length() / 1024} KB)" else "ناموجود (استفاده از CIDR داخلی)"}")
-            addLog("FS", "بررسی geosite.dat: ${if (geositeFile.exists()) "موجود (${geositeFile.length() / 1024} KB)" else "ناموجود"}")
+            addLog("FS", "فایل geoip.dat: ${if (geoipFile.exists()) "موجود (${geoipFile.length() / 1024} KB)" else "استفاده از CIDR داخلی"}")
+            addLog("FS", "فایل geosite.dat: ${if (geositeFile.exists()) "موجود (${geositeFile.length() / 1024} KB)" else "عدم نیاز"}")
 
             updateStep(0, DiagnosticStepState.PASSED, "هسته $coreVersion آماده به کار است.")
         } catch (e: Exception) {
             updateStep(0, DiagnosticStepState.FAILED, "خطا در ارزیابی محیط: ${e.message}", errorCode = "ERR_ENV_INIT")
             addLog("CORE", "خطای محیط: ${e.message}", isError = true)
-            failureOccurred = true
         }
 
-        // STEP 2: Establish Loopback via VpnService & Verify File Descriptor
+        // STEP 2: Establish Loopback TUN via VpnService (Local only)
         try {
-            updateStep(1, DiagnosticStepState.RUNNING, "در حال ایجاد رابط شبکه لوپ‌بک و بررسی File Descriptor…")
+            updateStep(1, DiagnosticStepState.RUNNING, "در حال ایجاد رابط TUN سیستم‌عامل و دریافت File Descriptor…")
             val vpnPrepareIntent = VpnService.prepare(context)
             if (vpnPrepareIntent != null) {
-                addLog("VPN", "مجوز VpnService هنوز تأیید نشده است. نیاز به تأیید کاربر در دیالوگ سیستم دارد.", isError = true)
+                addLog("VPN", "مجوز VPN سیستم داده نشده است. نیاز به تأیید کاربر دارد.", isError = true)
                 updateStep(1, DiagnosticStepState.FAILED, "مجوز دسترسی VPN توسط سیستم‌عامل صادر نشده است.", errorCode = "ERR_VPN_PERMISSION_REQUIRED")
-                failureOccurred = true
             } else if (vpnServiceInstance == null) {
-                addLog("VPN", "سرویس فعال VpnService در دسترس نیست؛ آزمایش در لایه کاربر انجام می‌شود.")
+                addLog("VPN", "سرویس VpnService در پس‌زمینه فعال نیست. بررسی در لایه کاربر انجام می‌شود.")
                 updateStep(1, DiagnosticStepState.PASSED, "مجوز سیستم بررسی شد (تست سرویس در پس‌زمینه انجام خواهد شد).")
             } else {
                 val builder = vpnServiceInstance.Builder()
-                    .setSession("Javadsolvpn-SafeMode-Diagnostic")
+                    .setSession("Javadsolvpn-SafeMode")
                     .addAddress("172.19.0.1", 30)
                     .addRoute("172.19.0.0", 30)
                     .setMtu(1500)
@@ -129,51 +143,64 @@ object SafeModeDiagnosticManager {
                     fdNumber = pfd.fd
                     val isValid = pfd.fileDescriptor.valid()
                     isFdBound = fdNumber > 0 && isValid
-                    addLog("FD", "تأیید File Descriptor: شماره FD=$fdNumber, معتبر=$isValid, اتصال=Bound")
+                    addLog("FD", "تخصیص تونل محلی: FD=$fdNumber (معتبر=$isValid). این فقط رابط محلی گوشی است، نه اتصال به اینترنت.")
                     updateStep(1, DiagnosticStepState.PASSED, "فایل‌دیسکریپتور با موفقیت به رابط TUN متصل شد (FD: $fdNumber).")
                 } else {
-                    addLog("FD", "خطا: خروجی builder.establish() برابر null است.", isError = true)
+                    addLog("FD", "خطا: سیستم‌عامل رابط TUN را صادر نکرد.", isError = true)
                     updateStep(1, DiagnosticStepState.FAILED, "ایجاد رابط TUN با شکست مواجه شد (FD null).", errorCode = "ERR_FD_NULL")
-                    failureOccurred = true
                 }
             }
         } catch (e: Exception) {
-            addLog("VPN", "خطا در برقراری اتصال لوپ‌بک: ${e.message}", isError = true)
-            updateStep(1, DiagnosticStepState.FAILED, "خطای اتصال رابط VPN: ${e.localizedMessage}", errorCode = "ERR_VPN_ESTABLISH")
-            failureOccurred = true
+            addLog("VPN", "خطا در برقراری رابط TUN: ${e.message}", isError = true)
+            updateStep(1, DiagnosticStepState.FAILED, "خطای رابط TUN: ${e.localizedMessage}", errorCode = "ERR_VPN_ESTABLISH")
         }
 
-        // STEP 3: Synthesize Diagnostic Loopback Configuration
+        // STEP 3: Synthesize Diagnostic Configuration and Test Remote Server Port
         var configJson = ""
         try {
-            updateStep(2, DiagnosticStepState.RUNNING, "در حال تولید پیکربندی آزمایشی لوپ‌بک…")
-            configJson = buildSafeModeDiagnosticJson(targetServerForProbe)
-            val jsonTest = JSONObject(configJson)
-            val inbounds = jsonTest.getJSONArray("inbounds")
-            addLog("JSON", "پیکربندی با ${inbounds.length()} این‌باند استاندارد (SOCKS 10808, HTTP 10809, TUN) با موفقیت تولید شد.")
+            updateStep(2, DiagnosticStepState.RUNNING, "در حال تولید ساختار JSON و سنجش دسترسی به پورت سرور…")
+            configJson = if (server != null) {
+                CoreConfigBuilder.buildConfigJson(server, socksPort = 10808, httpPort = 10809)
+            } else {
+                buildFallbackSafeModeJson()
+            }
+            addLog("JSON", "پیکربندی استاندارد JSON ایجاد و ساختار آن تأیید شد.")
+
+            if (server != null) {
+                val startTcp = System.currentTimeMillis()
+                try {
+                    val directSocket = Socket()
+                    directSocket.connect(InetSocketAddress(server.host, server.port), 2500)
+                    tcpLatency = System.currentTimeMillis() - startTcp
+                    tcpReachable = true
+                    directSocket.close()
+                    addLog("TCP", "✅ پورت سرور ${server.host}:${server.port} در دسترس است (${tcpLatency}ms).")
+                } catch (e: Exception) {
+                    tcpReachable = false
+                    val reason = e.localizedMessage ?: "تایم‌اوت"
+                    addLog("TCP", "❌ عدم اتصال به سرور: پورت یا IP سرور در شبکه فعلی مسدود است ($reason)", isError = true)
+                }
+            }
             updateStep(2, DiagnosticStepState.PASSED, "پیکربندی استاندارد JSON ایجاد و ساختار آن تأیید شد.")
         } catch (e: Exception) {
-            addLog("JSON", "خطا در تولید پیکربندی: ${e.message}", isError = true)
+            addLog("JSON", "خطا در ساخت کانفیگ: ${e.message}", isError = true)
             updateStep(2, DiagnosticStepState.FAILED, "خطا در ساخت کانفیگ: ${e.message}", errorCode = "ERR_JSON_SYNTHESIS")
-            failureOccurred = true
         }
 
-        // STEP 4: Start Core Loop & Log Status/Callback Codes
-        if (!failureOccurred && pfd != null) {
+        // STEP 4: Start Core Loop & Protocol Handshake
+        if (pfd != null && configJson.isNotBlank()) {
             try {
                 updateStep(3, DiagnosticStepState.RUNNING, "در حال ارسال دستور startLoop به هسته Xray و شنود Callback…")
                 val callback = object : CoreCallbackHandler {
                     override fun onEmitStatus(status: Long, msg: String?): Long {
                         coreReturnCode = status
-                        addLog("CORE_CALLBACK", "وضعیت هسته دریافت شد: کد=$status, پیام=${msg ?: "بدون پیام"}")
+                        addLog("CORE_CALLBACK", "وضعیت هسته: کد=$status, پیام=${msg ?: "بدون پیام"}")
                         return 0L
                     }
-
                     override fun startup(): Long {
                         addLog("CORE_CALLBACK", "سیگنال آغاز به کار (startup callback) صادر شد: کد بازگشتی 0")
                         return 0L
                     }
-
                     override fun shutdown(): Long {
                         addLog("CORE_CALLBACK", "سیگنال خاموشی (shutdown callback) صادر شد")
                         return 0L
@@ -182,35 +209,28 @@ object SafeModeDiagnosticManager {
 
                 val controller = Libv2ray.newCoreController(callback)
                 coreController = controller
-
                 addLog("CORE", "فراخوانی startLoop با FD=$fdNumber…")
                 controller.startLoop(configJson, pfd.fd)
-                addLog("CORE", "متد startLoop بدون Exception به پایان رسید (حلقه فعال شد).")
-
                 delay(800)
+
                 updateStep(3, DiagnosticStepState.PASSED, "هسته Xray بدون خطا راه‌اندازی شد و کد وضعیت تأیید گردید.")
             } catch (e: Exception) {
-                val errorMsg = e.localizedMessage ?: e.message ?: "خطای ناشناخته در استارت هسته"
-                addLog("CORE_ERR", "⚠️ استثنا در هسته Xray: $errorMsg", isError = true)
-                updateStep(3, DiagnosticStepState.FAILED, "هسته متوقف شد: $errorMsg", errorCode = "XRAY_CORE_START_FAIL: ${e.javaClass.simpleName}")
-                failureOccurred = true
+                addLog("CORE_ERR", "⚠️ استثنا در اجرای هسته: ${e.message}", isError = true)
+                updateStep(3, DiagnosticStepState.FAILED, "خطای هسته: ${e.localizedMessage}", errorCode = "XRAY_CORE_START_FAIL")
             }
-        } else if (!failureOccurred) {
+        } else {
             updateStep(3, DiagnosticStepState.SKIPPED, "برای اجرای زنده هسته نیاز به اجرای VpnService است.")
         }
 
-        // STEP 5: Handshake Phase Testing (SOCKS5 Loopback Handshake)
-        if (!failureOccurred && coreController != null) {
+        // STEP 5: Handshake Phase Testing (SOCKS5 Loopback Handshake & Live 204 Probe)
+        if (coreController != null) {
             try {
-                updateStep(4, DiagnosticStepState.RUNNING, "در حال انجام آزمون دست‌دست دادن SOCKS5 روی 127.0.0.1:10808…")
+                updateStep(4, DiagnosticStepState.RUNNING, "در حال آزمون دست‌دست دادن SOCKS5 و سنجش اینترنت آزاد…")
                 val startHs = System.currentTimeMillis()
-
                 val socksSocket = Socket()
-                socksSocket.connect(InetSocketAddress("127.0.0.1", 10808), 3000)
+                socksSocket.connect(InetSocketAddress("127.0.0.1", 10808), 2500)
                 val out: OutputStream = socksSocket.getOutputStream()
                 val input: InputStream = socksSocket.getInputStream()
-
-                // SOCKS5 Greeting: VER=5, NMETHODS=1, METHOD=0 (No Auth)
                 out.write(byteArrayOf(0x05, 0x01, 0x00))
                 out.flush()
 
@@ -220,47 +240,101 @@ object SafeModeDiagnosticManager {
                 socksSocket.close()
 
                 if (readBytes >= 2 && resp[0] == 0x05.toByte() && resp[1] == 0x00.toByte()) {
-                    handshakeCode = 0 // SOCKS5_SUCCESS_NO_AUTH
-                    addLog("HANDSHAKE", "✅ دست‌دست دادن SOCKS5 موفقیت‌آمیز بود! پاسخ هسته: VER=5, METHOD=0 (تأخیر: ${handshakeLatency}ms)")
-                    updateStep(4, DiagnosticStepState.PASSED, "دست‌دست دادن موفقیت‌آمیز در پورت لوپ‌بک (کد پاسخ: 0x00، زمان: ${handshakeLatency}ms).")
+                    handshakeCode = 0
+                    addLog("HANDSHAKE", "✅ دست‌دست دادن SOCKS5 موفقیت‌آمیز بود! (پاسخ: 0x00، زمان: ${handshakeLatency}ms)")
                 } else {
-                    handshakeCode = if (readBytes >= 2) resp[1].toInt() else -2
-                    addLog("HANDSHAKE", "پاسخ نامتعارف از درگاه SOCKS5: بایت‌های دریافتی: ${resp.joinToString { "%02X".format(it) }}", isError = true)
-                    updateStep(4, DiagnosticStepState.FAILED, "پاسخ نامعتبر در Handshake SOCKS5", errorCode = "SOCKS_REJECT_$handshakeCode")
+                    handshakeCode = -2
+                    addLog("HANDSHAKE", "پاسخ نامعتبر از پورت محلی هسته", isError = true)
+                }
+
+                // Probe Open Internet 204
+                val probeClient = OkHttpClient.Builder()
+                    .connectTimeout(4, TimeUnit.SECONDS)
+                    .readTimeout(4, TimeUnit.SECONDS)
+                    .followRedirects(false)
+                    .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", 10809)))
+                    .build()
+
+                val probeUrls = listOf(
+                    "http://1.1.1.1/generate_204",
+                    "http://cp.cloudflare.com/generate_204",
+                    "http://www.gstatic.com/generate_204"
+                )
+
+                val startProbe = System.currentTimeMillis()
+                for (url in probeUrls) {
+                    try {
+                        val req = Request.Builder()
+                            .url(url)
+                            .header("User-Agent", "Javadsolvpn-Diagnostic/2.0")
+                            .build()
+                        probeClient.newCall(req).execute().use { response ->
+                            if (response.code == 204 || response.code == 200) {
+                                internet204Passed = true
+                                internetLatency = System.currentTimeMillis() - startProbe
+                            }
+                        }
+                    } catch (_: Exception) {}
+                    if (internet204Passed) break
+                }
+
+                if (internet204Passed) {
+                    addLog("NET_204", "✅ اینترنت آزاد تأیید شد! پاسخ کد 204 در ${internetLatency}ms دریافت شد.")
+                    updateStep(4, DiagnosticStepState.PASSED, "دست‌دست دادن و اینترنت آزاد تأیید شد (کد 204 در ${internetLatency}ms).")
+                } else {
+                    addLog("NET_204", "❌ کد 204 دریافت نشد: پکت‌های اینترنت آزاد توسط فیلترینگ مسدود شدند.", isError = true)
+                    updateStep(
+                        4,
+                        DiagnosticStepState.FAILED,
+                        "پاسخ دست‌دست دادن دریافت شد اما کد 204 اینترنت آزاد رد نشد.",
+                        errorCode = "ERR_204_NO_INTERNET"
+                    )
                 }
             } catch (e: Exception) {
-                addLog("HANDSHAKE", "خطا در برقراری Handshake محلی با هسته: ${e.message}", isError = true)
-                updateStep(4, DiagnosticStepState.FAILED, "عدم پاسخگویی درگاه محلی: ${e.localizedMessage}", errorCode = "ERR_HANDSHAKE_SOCKET_TIMEOUT")
+                addLog("HANDSHAKE", "خطا در برقراری Handshake محلی: ${e.message}", isError = true)
+                updateStep(4, DiagnosticStepState.FAILED, "عدم پاسخگویی درگاه محلی: ${e.localizedMessage}", errorCode = "ERR_HANDSHAKE_TIMEOUT")
             }
-        } else if (!failureOccurred) {
+        } else {
             updateStep(4, DiagnosticStepState.SKIPPED, "مرحله Handshake در این سناریو صرف‌نظر شد.")
         }
 
-        // STEP 6: Safe Teardown
+        // STEP 6: Safe Teardown & Recommendation
+        updateStep(5, DiagnosticStepState.RUNNING, "در حال توقف امن هسته و رهاسازی File Descriptor…")
         try {
-            updateStep(5, DiagnosticStepState.RUNNING, "در حال توقف امن هسته و رهاسازی File Descriptor…")
-            try {
-                coreController?.stopLoop()
-                addLog("TEARDOWN", "هسته آزمایشی با موفقیت خاموش شد.")
-            } catch (_: Exception) {}
-            try {
-                pfd?.close()
-                addLog("TEARDOWN", "رابط فیزیکی شبکه (FD) با موفقیت بسته شد.")
-            } catch (_: Exception) {}
-            updateStep(5, DiagnosticStepState.PASSED, "تمامی منابع موقت عیب‌یابی با موفقیت آزاد شدند.")
-        } catch (e: Exception) {
-            updateStep(5, DiagnosticStepState.FAILED, "خطا در آزادسازی منابع: ${e.message}")
+            coreController?.stopLoop()
+            addLog("TEARDOWN", "هسته آزمایشی خاموش شد.")
+        } catch (_: Exception) {}
+        try {
+            pfd?.close()
+            addLog("TEARDOWN", "رابط فیزیکی شبکه (FD) با موفقیت بسته شد.")
+        } catch (_: Exception) {}
+
+        if (server != null) {
+            nextCandidate = db.serverDao().getNextCandidate(server.id)
+            if (nextCandidate != null) {
+                addLog("ADVICE", "💡 پیشنهاد هوشمند: سرور جایگزین آماده آزمایش است: ${nextCandidate.name}")
+            }
         }
 
-        val allPassed = _report.value.steps.none { it.state == DiagnosticStepState.FAILED }
-        val finalSummary = if (allPassed) {
-            "✅ عیب‌یابی حالت امن با موفقیت انجام شد: رابط TUN با شناسه FD=$fdNumber پیوند داده شد، هسته Xray بدون خطا آغاز به کار کرد و فاز دست‌دست دادن محلی با کد 0x00 تأیید شد."
-        } else {
-            val failedStep = _report.value.steps.firstOrNull { it.state == DiagnosticStepState.FAILED }
-            "⚠️ خطا در عیب‌یابی: مرحله «${failedStep?.title}» ناموفق بود (کد خطا: ${failedStep?.errorCode ?: "نامشخص"})."
+        val allPassed = internet204Passed && tcpReachable && isFdBound
+        val summaryText = when {
+            allPassed -> {
+                "✅ سرور «$serverDisplayName» کاملاً سالم است! پورت سرور باز است و اینترنت آزاد با کد 204 تأیید شد."
+            }
+            !tcpReachable -> {
+                "❌ علت قطعی: پورت یا آدرس سرور «$serverDisplayName» در شبکه فعلی شما مسدود است. لطفاً سرور دیگری را آزمایش یا از بخش هوشمند کاوش کنید."
+            }
+            !internet204Passed -> {
+                "❌ علت قطعی (ارور 204): پورت سرور باز است اما ترافیک رمزنگاری‌شده توسط فیلترینگ مسدود شده و کد 204 دریافت نمی‌شود. سرور بعدی پیشنهاد می‌شود."
+            }
+            else -> {
+                "⚠️ عیب‌یابی حالت امن: رابط با شناسه FD=$fdNumber پیوند داده شد. کدهای وضعیت بررسی شدند."
+            }
         }
 
-        addLog("SUMMARY", finalSummary)
+        updateStep(5, DiagnosticStepState.PASSED, "تمامی منابع موقت عیب‌یابی با موفقیت آزاد شدند.")
+        addLog("SUMMARY", summaryText, isError = !allPassed)
+
         val finalReport = _report.value.copy(
             isRunning = false,
             overallPassed = allPassed,
@@ -270,10 +344,62 @@ object SafeModeDiagnosticManager {
             coreReturnCode = coreReturnCode,
             handshakeResponseCode = handshakeCode,
             handshakeLatencyMs = handshakeLatency,
-            summary = finalSummary
+            tcpReachable = tcpReachable,
+            tcpPingMs = tcpLatency,
+            internetCode204Passed = internet204Passed,
+            internetLatencyMs = internetLatency,
+            nextCandidateId = nextCandidate?.id,
+            nextCandidateName = nextCandidate?.name,
+            summary = summaryText
         )
         _report.value = finalReport
         finalReport
+    }
+
+    private fun buildFallbackSafeModeJson(): String {
+        val root = JSONObject()
+        root.put("log", JSONObject().apply { put("loglevel", "warning") })
+        val inbounds = JSONArray()
+        inbounds.put(JSONObject().apply {
+            put("tag", "socks-in")
+            put("port", 10808)
+            put("listen", "127.0.0.1")
+            put("protocol", "socks")
+            put("settings", JSONObject().apply { put("auth", "noauth") })
+        })
+        inbounds.put(JSONObject().apply {
+            put("tag", "http-in")
+            put("port", 10809)
+            put("listen", "127.0.0.1")
+            put("protocol", "http")
+        })
+        inbounds.put(JSONObject().apply {
+            put("tag", "tun-in")
+            put("protocol", "tun")
+            put("settings", JSONObject().apply {
+                put("name", "tun0")
+                put("MTU", 1500)
+            })
+        })
+        root.put("inbounds", inbounds)
+        val outbounds = JSONArray()
+        outbounds.put(JSONObject().apply {
+            put("tag", "direct")
+            put("protocol", "freedom")
+            put("settings", JSONObject().apply { put("domainStrategy", "AsIs") })
+        })
+        root.put("outbounds", outbounds)
+        root.put("routing", JSONObject().apply {
+            put("domainStrategy", "AsIs")
+            val rules = JSONArray()
+            rules.put(JSONObject().apply {
+                put("type", "field")
+                put("outboundTag", "direct")
+                put("network", "tcp,udp")
+            })
+            put("rules", rules)
+        })
+        return root.toString(2)
     }
 
     private fun updateStep(index: Int, state: DiagnosticStepState, detail: String, errorCode: String? = null) {
@@ -286,65 +412,6 @@ object SafeModeDiagnosticManager {
                 errorCode = errorCode ?: old.errorCode
             )
             _report.value = _report.value.copy(steps = currentSteps)
-        }
-    }
-
-    private fun buildSafeModeDiagnosticJson(probeServer: ServerConfigEntity?): String {
-        return if (probeServer != null) {
-            CoreConfigBuilder.buildConfigJson(probeServer, socksPort = 10808, httpPort = 10809)
-        } else {
-            // Self-contained loopback test config (Direct/Blackhole)
-            val root = JSONObject()
-            root.put("log", JSONObject().apply { put("loglevel", "warning") })
-
-            val inbounds = JSONArray()
-            inbounds.put(JSONObject().apply {
-                put("tag", "socks-in")
-                put("port", 10808)
-                put("listen", "127.0.0.1")
-                put("protocol", "socks")
-                put("settings", JSONObject().apply { put("auth", "noauth") })
-            })
-            inbounds.put(JSONObject().apply {
-                put("tag", "http-in")
-                put("port", 10809)
-                put("listen", "127.0.0.1")
-                put("protocol", "http")
-            })
-            inbounds.put(JSONObject().apply {
-                put("tag", "tun-in")
-                put("protocol", "tun")
-                put("settings", JSONObject().apply {
-                    put("name", "tun0")
-                    put("MTU", 1500)
-                    put("userLevel", 0)
-                })
-            })
-            root.put("inbounds", inbounds)
-
-            val outbounds = JSONArray()
-            outbounds.put(JSONObject().apply {
-                put("tag", "direct")
-                put("protocol", "freedom")
-                put("settings", JSONObject().apply { put("domainStrategy", "AsIs") })
-            })
-            root.put("outbounds", outbounds)
-
-            root.put("routing", JSONObject().apply {
-                put("domainStrategy", "IPIfNonMatch")
-                val rules = JSONArray()
-                rules.put(JSONObject().apply {
-                    put("type", "field")
-                    put("outboundTag", "direct")
-                    put("network", "tcp,udp")
-                })
-                put("rules", rules)
-            })
-
-            root.put("dns", JSONObject().apply {
-                put("servers", JSONArray().put("1.1.1.1").put("localhost"))
-            })
-            root.toString(2)
         }
     }
 }

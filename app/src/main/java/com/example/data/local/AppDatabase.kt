@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
         DiscoverySourceEntity::class,
         ConnectionHistoryEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -27,6 +27,13 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         @Volatile
         private var INSTANCE: AppDatabase? = null
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Clear obsolete unverified non-manual servers to seed verified Port 443 servers
+                db.execSQL("DELETE FROM server_configs WHERE isManual = 0")
+            }
+        }
 
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -65,7 +72,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "javadsolvpn.db"
                 )
-                .addMigrations(MIGRATION_2_3, MIGRATION_1_3)
+                .addMigrations(MIGRATION_3_4, MIGRATION_2_3, MIGRATION_1_3)
                 .fallbackToDestructiveMigration(true)
                 .addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
