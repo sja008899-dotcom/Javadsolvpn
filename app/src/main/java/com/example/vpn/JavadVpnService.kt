@@ -270,35 +270,7 @@ class JavadVpnService : VpnService() {
                 coreController = controller
                 controller.startLoop(configJson, pfd.fd)
 
-                // Yield to allow core to establish listener and initialize outbound tunnel
-                delay(2000)
-
-                // 5. Genuine Live Connectivity Verification (generate_204)
-                val isAlive = verifyLiveInternet()
-                if (!isAlive) {
-                    // Core did not pass live internet test. Clean up immediately so user internet is NOT blocked!
-                    stopCore()
-                    try { pfd.close() } catch (_: Exception) {}
-                    vpnInterface = null
-                    db.serverDao().recordFailure(targetServer.id)
-
-                    // Auto-failover: try next candidate
-                    val nextCandidate = db.serverDao().getNextCandidate(targetServer.id)
-                    if (nextCandidate != null && !triedServersInSession.contains(nextCandidate.id) && triedServersInSession.size < 8) {
-                        _errorMessage.value = "سرور ${targetServer.name} پاسخ نداد (کد 204)؛ در حال اتصال به ${nextCandidate.name}…"
-                        delay(600)
-                        initiateConnection(nextCandidate.id, dns)
-                        return@launch
-                    } else {
-                        _vpnStatus.value = VpnStatus.ERROR
-                        _errorMessage.value = "عدم برقراری ارتباط پایدار با سرور (کد 204 دریافت نشد). سرور توسط اپراتور مسدود شده است. لطفاً از بخش عیب‌یابی امن تست گرفته یا هاب را بروزرسانی کنید."
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                        stopSelf()
-                        return@launch
-                    }
-                }
-
-                // Connection verified as truly alive!
+                // 4. Tunnel and Core are established successfully!
                 connectTimeMillis = System.currentTimeMillis()
                 val myUid = Process.myUid()
                 initialUidRxBytes = AndroidTrafficStats.getUidRxBytes(myUid).coerceAtLeast(0L)
@@ -310,17 +282,34 @@ class JavadVpnService : VpnService() {
                 DefaultVpnCoreEngine.instance.establishSession(params)
                 _vpnStatus.value = VpnStatus.CONNECTED
                 _errorMessage.value = null
-                db.serverDao().recordSuccess(targetServer.id)
 
                 startForeground(
                     NOTIFICATION_ID,
                     buildNotification(
                         "متصل به ${targetServer.name}",
-                        "پروتکل: ${params.protocol} • اینترنت آزاد تأیید شد"
+                        "پروتکل: ${params.protocol} • تونل رمزگذاری‌شده فعال است"
                     )
                 )
 
                 startStatsTicker()
+
+                // 5. Asynchronous background live health check (does not abruptly kill user's VPN if mobile latency is high)
+                serviceScope.launch {
+                    delay(1500)
+                    val isAlive = verifyLiveInternet()
+                    if (isAlive) {
+                        db.serverDao().recordSuccess(targetServer.id)
+                        startForeground(
+                            NOTIFICATION_ID,
+                            buildNotification(
+                                "متصل به ${targetServer.name}",
+                                "پروتکل: ${params.protocol} • اینترنت آزاد تأیید شد"
+                            )
+                        )
+                    } else {
+                        db.serverDao().recordFailure(targetServer.id)
+                    }
+                }
 
             } catch (e: Exception) {
                 stopCore()

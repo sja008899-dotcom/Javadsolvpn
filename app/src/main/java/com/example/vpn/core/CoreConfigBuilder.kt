@@ -104,15 +104,13 @@ object CoreConfigBuilder {
             put("domainStrategy", "AsIs")
             val rules = JSONArray()
 
-            // Direct private IPs (LAN bypass without requiring external geoip.dat)
+            // Direct private IPs (LAN bypass: local loopback and local router subnet)
             val directRule = JSONObject().apply {
                 put("type", "field")
                 put("outboundTag", "direct")
                 val lanCidrs = JSONArray().apply {
-                    put("10.0.0.0/8")
-                    put("172.16.0.0/12")
-                    put("192.168.0.0/16")
                     put("127.0.0.0/8")
+                    put("192.168.0.0/16")
                     put("fc00::/7")
                     put("fe80::/10")
                 }
@@ -257,7 +255,7 @@ object CoreConfigBuilder {
         if (effectiveSecurity == "tls") {
             val tlsSettings = JSONObject().apply {
                 put("serverName", effectiveSni)
-                put("allowInsecure", false)
+                put("allowInsecure", true)
                 if (server.fingerprint.isNotBlank()) {
                     put("fingerprint", server.fingerprint)
                 }
