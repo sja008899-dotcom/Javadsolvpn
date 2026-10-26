@@ -231,4 +231,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clearBanner() {
         bannerMessage.value = null
     }
+
+    // Safe Mode Diagnostics
+    val diagnosticReport = com.example.vpn.diagnostic.SafeModeDiagnosticManager.report
+    val showDiagnosticDialog = MutableStateFlow(false)
+
+    fun startSafeModeDiagnostic(context: Context, targetServer: ServerConfigEntity? = null) {
+        showDiagnosticDialog.value = true
+        val vpnPrepareIntent = android.net.VpnService.prepare(context)
+        if (vpnPrepareIntent == null) {
+            // Permission already granted, launch via service to establish loopback TUN and test FD binding
+            JavadVpnService.runSafeModeDiagnostic(context, targetServer?.id ?: -1L)
+        } else {
+            // Permission needed for TUN binding; run baseline environment diagnostic
+            viewModelScope.launch {
+                com.example.vpn.diagnostic.SafeModeDiagnosticManager.runDiagnosticRoutine(
+                    context = context,
+                    vpnServiceInstance = null,
+                    targetServerForProbe = targetServer
+                )
+            }
+        }
+    }
+
+    fun dismissDiagnosticDialog() {
+        showDiagnosticDialog.value = false
+    }
 }

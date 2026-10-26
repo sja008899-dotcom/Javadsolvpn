@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
@@ -44,6 +45,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -51,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.ui.MainViewModel
+import com.example.ui.components.SafeModeDiagnosticDialog
 import com.example.ui.theme.CyberBlue
 import com.example.ui.theme.CyberBorder
 import com.example.ui.theme.CyberCyan
@@ -64,10 +68,13 @@ fun SettingsScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val preferredDns by viewModel.preferredDns.collectAsStateWithLifecycle()
     val autoConnect by viewModel.autoConnectOnLaunch.collectAsStateWithLifecycle()
     val autoFailover by viewModel.autoFailover.collectAsStateWithLifecycle()
     val language by viewModel.appLanguage.collectAsStateWithLifecycle()
+    val diagnosticReport by viewModel.diagnosticReport.collectAsStateWithLifecycle()
+    val showDiagnosticDialog by viewModel.showDiagnosticDialog.collectAsStateWithLifecycle()
 
     var showAboutDialog by remember { mutableStateOf(false) }
 
@@ -151,7 +158,39 @@ fun SettingsScreen(
             }
         }
 
-        // Language Section
+        // Safe Mode Diagnostic Section
+        SettingsCard(title = "عیب‌یابی حالت امن (Safe Mode)", icon = Icons.Default.BugReport) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "بررسی اتصال لوپ‌بک، سنجش اتصال File Descriptor و رهگیری دقیق کدهای خطای هسته Xray در مرحله Handshake.",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    lineHeight = 18.sp
+                )
+                Button(
+                    onClick = { viewModel.startSafeModeDiagnostic(context) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("safe_mode_diagnostic_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CyberCyan.copy(alpha = 0.2f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.BugReport,
+                        contentDescription = null,
+                        tint = CyberCyan,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "اجرای عیب‌یابی حالت امن (Safe Mode)",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberCyan
+                    )
+                }
+            }
+        }
         SettingsCard(title = "زبان برنامه / Language", icon = Icons.Default.Language) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -239,6 +278,14 @@ fun SettingsScreen(
                 }
             },
             containerColor = CyberDarkCard
+        )
+    }
+
+    if (showDiagnosticDialog) {
+        SafeModeDiagnosticDialog(
+            report = diagnosticReport,
+            onRunDiagnostic = { viewModel.startSafeModeDiagnostic(context) },
+            onDismiss = { viewModel.dismissDiagnosticDialog() }
         )
     }
 }

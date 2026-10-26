@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Speed
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
+import com.example.ui.components.SafeModeDiagnosticDialog
 import com.example.data.local.ServerConfigEntity
 import com.example.data.parser.CountryDetector
 import com.example.ui.MainViewModel
@@ -79,6 +81,8 @@ fun HomeScreen(
     val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
     val isTestingPing by viewModel.isTestingPing.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val diagnosticReport by viewModel.diagnosticReport.collectAsStateWithLifecycle()
+    val showDiagnosticDialog by viewModel.showDiagnosticDialog.collectAsStateWithLifecycle()
 
     val currentDisplayServer = activeServer ?: selectedServer
 
@@ -182,20 +186,45 @@ fun HomeScreen(
                     .border(1.dp, Color(0xFFFF5252), RoundedCornerShape(12.dp))
                     .padding(12.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.ErrorOutline,
-                        contentDescription = null,
-                        tint = Color(0xFFFF5252),
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = errorMessage ?: "",
-                        fontSize = 12.sp,
-                        color = Color(0xFFFFD1D1),
-                        modifier = Modifier.weight(1f)
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.ErrorOutline,
+                            contentDescription = null,
+                            tint = Color(0xFFFF5252),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = errorMessage ?: "",
+                            fontSize = 12.sp,
+                            color = Color(0xFFFFD1D1),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Button(
+                        onClick = { viewModel.startSafeModeDiagnostic(context, currentDisplayServer) },
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberCyan.copy(alpha = 0.25f)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("home_error_safe_mode_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BugReport,
+                            contentDescription = null,
+                            tint = CyberCyan,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "اجرای عیب‌یابی حالت امن (Safe Mode Diagnostics)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberCyan
+                        )
+                    }
                 }
             }
         }
@@ -334,6 +363,14 @@ fun HomeScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+    }
+
+    if (showDiagnosticDialog) {
+        SafeModeDiagnosticDialog(
+            report = diagnosticReport,
+            onRunDiagnostic = { viewModel.startSafeModeDiagnostic(context, currentDisplayServer) },
+            onDismiss = { viewModel.dismissDiagnosticDialog() }
+        )
     }
 }
 

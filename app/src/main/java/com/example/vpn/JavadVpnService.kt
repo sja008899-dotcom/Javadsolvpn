@@ -69,6 +69,7 @@ class JavadVpnService : VpnService() {
     companion object {
         const val ACTION_CONNECT = "com.example.vpn.ACTION_CONNECT"
         const val ACTION_DISCONNECT = "com.example.vpn.ACTION_DISCONNECT"
+        const val ACTION_SAFE_MODE_DIAGNOSTIC = "com.example.vpn.ACTION_SAFE_MODE_DIAGNOSTIC"
         const val EXTRA_SERVER_ID = "extra_server_id"
         const val EXTRA_DNS = "extra_dns"
 
@@ -105,6 +106,18 @@ class JavadVpnService : VpnService() {
                 action = ACTION_DISCONNECT
             }
             context.startService(intent)
+        }
+
+        fun runSafeModeDiagnostic(context: Context, serverId: Long = -1L) {
+            val intent = Intent(context, JavadVpnService::class.java).apply {
+                action = ACTION_SAFE_MODE_DIAGNOSTIC
+                putExtra(EXTRA_SERVER_ID, serverId)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
         }
     }
 
@@ -150,6 +163,21 @@ class JavadVpnService : VpnService() {
             }
             ACTION_DISCONNECT -> {
                 terminateVpn("قطع اتصال توسط کاربر")
+            }
+            ACTION_SAFE_MODE_DIAGNOSTIC -> {
+                val serverId = intent.getLongExtra(EXTRA_SERVER_ID, -1L)
+                startForeground(NOTIFICATION_ID, buildNotification("حالت عیب‌یابی امن", "در حال ارزیابی هسته Xray و File Descriptor…"))
+                serviceScope.launch {
+                    val db = AppDatabase.getInstance(applicationContext)
+                    val server = if (serverId > 0) db.serverDao().getServerById(serverId) else db.serverDao().getBestCandidate()
+                    com.example.vpn.diagnostic.SafeModeDiagnosticManager.runDiagnosticRoutine(
+                        context = this@JavadVpnService,
+                        vpnServiceInstance = this@JavadVpnService,
+                        targetServerForProbe = server
+                    )
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }
         }
         return START_NOT_STICKY

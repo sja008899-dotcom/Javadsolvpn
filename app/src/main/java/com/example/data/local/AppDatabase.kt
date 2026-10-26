@@ -66,7 +66,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "javadsolvpn.db"
                 )
                 .addMigrations(MIGRATION_2_3, MIGRATION_1_3)
-                .fallbackToDestructiveMigration()
+                .fallbackToDestructiveMigration(true)
                 .addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
                         super.onOpen(db)
