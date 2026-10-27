@@ -161,7 +161,7 @@ def outbound_from_link(link: str) -> tuple[dict, str]:
             if parsed_legacy.password:
                 userinfo += ":" + parsed_legacy.password
         else:
-            userinfo = urllib.parse.unquote(parsed.username or "")
+            userinfo = urllib.parse.unquote(parsed.netloc.rsplit("@", 1)[0])
             if ":" not in userinfo:
                 userinfo = decode_b64(userinfo)
         if not host or not port or ":" not in userinfo:
@@ -272,6 +272,17 @@ def main() -> int:
     links = [item["link"] for item in valid]
     (STORE / "all.txt").write_text("\n".join(links) + "\n", encoding="utf-8")
     (STORE / "top20.txt").write_text("\n".join(links[:20]) + "\n", encoding="utf-8")
+    table = [
+        "# Top 20 configs (verified with real HTTPS tunnel traffic)",
+        "",
+        "| Rank | Protocol | Endpoint | Probe time (ms) |",
+        "|---:|---|---|---:|"
+    ]
+    for item in valid[:20]:
+        protocol = item["link"].split("://", 1)[0].upper()
+        table.append(f'| {item["rank"]} | {protocol} | {item["endpoint"]} | {item["rtt_ms"]} |')
+    table.extend(["", "Raw links for copying are in top20.txt. A successful probe does not guarantee future uptime."])
+    (STORE / "top20.md").write_text("\n".join(table) + "\n", encoding="utf-8")
     (STORE / "last-run.json").write_text(json.dumps({
         "checked_at": generated, "status": "success", "candidate_count": len(candidates),
         "verified_count": len(valid), "source_errors": source_errors
