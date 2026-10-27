@@ -308,6 +308,13 @@ class JavadVpnService : VpnService() {
                         )
                     } else {
                         db.serverDao().recordFailure(targetServer.id)
+                        // A started core is not proof of usable internet. Tear it down and
+                        // try the next untested candidate, with a hard cap of 12 attempts.
+                        stopCore()
+                        try { vpnInterface?.close() } catch (_: Exception) {}
+                        vpnInterface = null
+                        DefaultVpnCoreEngine.instance.terminateSession("آزمون اینترنت ناموفق بود")
+                        retryNextServer(db, dns, targetServer.id)
                     }
                 }
 
@@ -318,9 +325,36 @@ class JavadVpnService : VpnService() {
                 _vpnStatus.value = VpnStatus.ERROR
                 _errorMessage.value = "خطا در راه‌اندازی هسته: ${e.localizedMessage ?: "عدم ارتباط"}"
                 db.serverDao().recordFailure(targetServer.id)
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                retryNextServer(db, dns, targetServer.id)
             }
+        }
+    }
+
+    private suspend fun retryNextServer(
+        db: AppDatabase,
+        dns: String,
+        failedServerId: Long
+    ) {
+        // Preserve one attempt per server per connection session and never scan more than 12.
+        val candidates = db.serverDao().getAllServersOnce()
+            .asSequence()
+            .filter { it.id != failedServerId && it.id !in triedServersInSession }
+            .take(12)
+            .toList()
+
+        val next = candidates.firstOrNull()
+        if (next != null) {
+            triedServersInSession.add(next.id)
+            _vpnStatus.value = VpnStatus.CONNECTING
+            _errorMessage.value = "این سرور پاسخ نداد؛ در حال آزمایش سرور جایگزین (" + triedServersInSession.size + "/12)"
+            _activeServer.value = null
+            initiateConnection(next.id, dns)
+        } else {
+            _vpnStatus.value = VpnStatus.ERROR
+            _errorMessage.value = "۱۲ تلاش یا همهٔ کانفیگ‌های موجود آزمایش شدند؛ اتصال واقعی برقرار نشد."
+            _activeServer.value = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
         }
     }
 
