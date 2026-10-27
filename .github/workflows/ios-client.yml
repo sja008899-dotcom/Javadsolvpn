@@ -17,7 +17,7 @@ permissions:
 jobs:
   build-ios:
     name: Build unsigned iOS app (Xcode + Libbox)
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 90
     steps:
       - name: Checkout Javadsolvpn
