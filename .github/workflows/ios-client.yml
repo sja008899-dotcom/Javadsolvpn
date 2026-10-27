@@ -3,7 +3,7 @@ name: Build iOS Javadsolvpn Client
 on:
   workflow_dispatch:
   push:
-    branches: ["main"]
+    branches: ["main", "feature/ios-and-hourly-config-repository"]
     paths:
       - "ios/**"
       - ".github/workflows/ios-client.yml"
