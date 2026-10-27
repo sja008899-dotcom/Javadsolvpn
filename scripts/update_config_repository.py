@@ -195,24 +195,24 @@ def verify_one(link: str, sing_box: str) -> dict | None:
             proc = subprocess.Popen([sing_box, "run", "-c", str(config_path)],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             deadline = time.monotonic() + 8
-            success = False
+            success_ms = None
             for test_url in TEST_URLS:
                 while time.monotonic() < deadline and proc.poll() is None:
+                    probe_started = time.monotonic()
                     result = subprocess.run(
                         ["curl", "--silent", "--show-error", "--max-time", "5",
                          "--socks5-hostname", f"127.0.0.1:{port}", "-o", "/dev/null",
                          "-w", "%{http_code}", test_url],
                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=7)
                     if result.returncode == 0 and result.stdout.strip() in ("200", "204"):
-                        success = True
+                        success_ms = int((time.monotonic() - probe_started) * 1000)
                         break
                     time.sleep(0.4)
-                if success:
+                if success_ms is not None:
                     break
-            if not success:
+            if success_ms is None:
                 return None
-        elapsed = int((time.monotonic() - started) * 1000)
-        return {"link": link, "endpoint": endpoint, "rtt_ms": elapsed,
+        return {"link": link, "endpoint": endpoint, "rtt_ms": success_ms,
                 "verified_at": utc_now(), "verification": "sing-box+HTTPS-through-SOCKS"}
     except Exception:
         return None
