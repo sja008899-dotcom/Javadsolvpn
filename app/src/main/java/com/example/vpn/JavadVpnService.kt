@@ -335,14 +335,20 @@ class JavadVpnService : VpnService() {
         dns: String,
         failedServerId: Long
     ) {
-        // Preserve one attempt per server per connection session and never scan more than 12.
-        val candidates = db.serverDao().getAllServersOnce()
+        // Hard session-wide cap: never attempt more than 12 distinct server IDs.
+        if (triedServersInSession.size >= 12) {
+            _vpnStatus.value = VpnStatus.ERROR
+            _errorMessage.value = "حداکثر ۱۲ سرور آزمایش شد؛ اتصال واقعی برقرار نشد."
+            _activeServer.value = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
+
+        val next = db.serverDao().getAllServersOnce()
             .asSequence()
             .filter { it.id != failedServerId && it.id !in triedServersInSession }
-            .take(12)
-            .toList()
-
-        val next = candidates.firstOrNull()
+            .firstOrNull()
         if (next != null) {
             triedServersInSession.add(next.id)
             _vpnStatus.value = VpnStatus.CONNECTING
