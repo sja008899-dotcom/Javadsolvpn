@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -55,6 +57,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Operation progress
     val isDiscovering = MutableStateFlow(false)
     val isTestingPing = MutableStateFlow(false)
+    val isFetchingRepository = MutableStateFlow(false)
     val bannerMessage = MutableStateFlow<String?>(null)
 
     val allServers: StateFlow<List<ServerConfigEntity>> = repository.allServers
@@ -192,6 +195,65 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 bannerMessage.value = "خطا در تست پینگ: ${e.localizedMessage}"
             } finally {
                 isTestingPing.value = false
+            }
+        }
+    }
+
+    /**
+     * Fetches up to 12 top-ranked public configs per tap, with a hard 110-link daily download quota.
+     * The local active pool remains capped at 12 by design.
+     */
+    fun fetchLatestRepositoryConfigs() {
+        if (isFetchingRepository.value) return
+        viewModelScope.launch {
+            isFetchingRepository.value = true
+            try {
+                val prefs = getApplication<Application>().getSharedPreferences("config_repository_quota", Context.MODE_PRIVATE)
+                val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                val savedDay = prefs.getString("day", "")
+                val used = if (savedDay == today) prefs.getInt("used", 0) else 0
+                val remaining = (110 - used).coerceAtLeast(0)
+                if (remaining == 0) {
+                    bannerMessage.value = "سهمیهٔ دریافت روزانهٔ ۱۱۰ کانفیگ تمام شده است؛ فردا دوباره امتحان کنید."
+                    return@launch
+                }
+
+                bannerMessage.value = "در حال دریافت تازه‌ترین کانفیگ‌های رتبه‌بندی‌شده…"
+                val connection = (URL("https://raw.githubusercontent.com/sja008899-dotcom/Javadsolvpn/main/config-repository/top20.txt").openConnection() as HttpURLConnection)
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 10000
+                connection.readTimeout = 15000
+                connection.setRequestProperty("User-Agent", "Javadsolvpn-Android")
+                val body = try {
+                    if (connection.responseCode !in 200..299) throw IllegalStateException("HTTP ${connection.responseCode}")
+                    connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                } finally {
+                    connection.disconnect()
+                }
+                val supported = body.lineSequence().map { it.trim() }
+                    .filter { line -> line.startsWith("vless://") || line.startsWith("vmess://") || line.startsWith("trojan://") || line.startsWith("ss://") }
+                    .distinct().toList()
+                val batch = supported.take(minOf(12, remaining))
+                if (batch.isEmpty()) {
+                    bannerMessage.value = "مخزن هنوز کانفیگ تأییدشده‌ای منتشر نکرده است؛ بعداً دوباره تلاش کنید."
+                    return@launch
+                }
+
+                val inserted = repository.importRawConfig(batch.joinToString("\n"))
+                prefs.edit().putString("day", today).putInt("used", used + batch.size).apply()
+                if (inserted > 0) {
+                    selectedServer.value = db.serverDao().getAllServersOnce()
+                        .filter { it.isManual }
+                        .maxByOrNull { it.id }
+                    currentTab.value = 1
+                    bannerMessage.value = "${batch.size} کانفیگ از مخزن دریافت شد؛ ${inserted} مورد جدید به فهرست آزمایش اضافه شد. سهمیهٔ امروز: ${used + batch.size}/110."
+                } else {
+                    bannerMessage.value = "کانفیگ‌ها دریافت شدند اما مورد جدیدی اضافه نشد؛ احتمالاً تکراری‌اند یا جایگاه‌های دستی/علاقه‌مندی پر است. سهمیه: ${used + batch.size}/110."
+                }
+            } catch (e: Exception) {
+                bannerMessage.value = "دریافت از مخزن ناموفق بود: ${e.localizedMessage ?: "خطای شبکه"}"
+            } finally {
+                isFetchingRepository.value = false
             }
         }
     }
