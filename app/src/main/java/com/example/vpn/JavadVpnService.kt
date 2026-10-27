@@ -337,7 +337,7 @@ class JavadVpnService : VpnService() {
                 _vpnStatus.value = VpnStatus.ERROR
                 _errorMessage.value = "خطا در راه‌اندازی هسته: ${e.localizedMessage ?: "عدم ارتباط"}"
                 db.serverDao().recordFailure(targetServer.id)
-                retryNextServer(db, dns, targetServer.id)
+                retryNextServer(db, dns, targetServer.id, generation)
             }
         }
     }
