@@ -289,20 +289,19 @@ class JavadVpnService : VpnService() {
                 lastStatsSampleTime = System.currentTimeMillis()
 
                 DefaultVpnCoreEngine.instance.establishSession(params)
-                _vpnStatus.value = VpnStatus.CONNECTED
-                _errorMessage.value = null
-
+                // A started Xray loop is not proof that user traffic can reach the internet.
+                // Keep the UI in CONNECTING until an actual outbound probe succeeds.
+                _vpnStatus.value = VpnStatus.CONNECTING
+                _errorMessage.value = "در حال بررسی دسترسی واقعی به اینترنت…"
                 startForeground(
                     NOTIFICATION_ID,
                     buildNotification(
-                        "متصل به ${targetServer.name}",
-                        "پروتکل: ${params.protocol} • تونل رمزگذاری‌شده فعال است"
+                        "در حال بررسی اینترنت…",
+                        "تونل آماده شده؛ در حال آزمایش مسیر واقعی ترافیک"
                     )
                 )
 
-                startStatsTicker()
-
-                // 5. Asynchronous background live health check (does not abruptly kill user's VPN if mobile latency is high)
+                // 5. Asynchronous live health check
                 serviceScope.launch {
                     delay(1500)
                     if (generation != connectionGeneration) return@launch
@@ -310,6 +309,8 @@ class JavadVpnService : VpnService() {
                     if (generation != connectionGeneration) return@launch
                     if (isAlive) {
                         db.serverDao().recordSuccess(targetServer.id)
+                        _vpnStatus.value = VpnStatus.CONNECTED
+                        _errorMessage.value = null
                         startForeground(
                             NOTIFICATION_ID,
                             buildNotification(
@@ -317,6 +318,7 @@ class JavadVpnService : VpnService() {
                                 "پروتکل: ${params.protocol} • اینترنت آزاد تأیید شد"
                             )
                         )
+                        startStatsTicker()
                     } else {
                         db.serverDao().recordFailure(targetServer.id)
                         // A started core is not proof of usable internet. Tear it down and
@@ -364,6 +366,14 @@ class JavadVpnService : VpnService() {
         val next = db.serverDao().getAllServersOnce()
             .asSequence()
             .filter { it.id != failedServerId && it.id !in triedServersInSession }
+            .sortedWith(
+                compareByDescending<ServerConfigEntity> { it.isFavorite }
+                    .thenBy { if (it.isWorking && it.pingMs > 0L) 0 else 1 }
+                    .thenBy { if (it.pingMs > 0L) it.pingMs else Long.MAX_VALUE }
+                    .thenBy { it.failureCount }
+                    .thenByDescending { it.successCount }
+                    .thenBy { it.id }
+            )
             .firstOrNull()
         if (next != null) {
             triedServersInSession.add(next.id)
