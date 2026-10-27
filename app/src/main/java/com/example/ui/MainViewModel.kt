@@ -247,7 +247,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                val connection = (URL("https://raw.githubusercontent.com/sja008899-dotcom/Javadsolvpn/main/config-repository/top20.txt").openConnection() as HttpURLConnection)
+                val connection = (URL("https://raw.githubusercontent.com/sja008899-dotcom/Javadsolvpn/main/config-repository/all.txt").openConnection() as HttpURLConnection)
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 10000
                 connection.readTimeout = 15000
@@ -261,9 +261,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val supported = body.lineSequence().map { it.trim() }
                     .filter { line -> line.startsWith("vless://") || line.startsWith("vmess://") || line.startsWith("trojan://") || line.startsWith("ss://") }
                     .distinct().toList()
-                val batch = supported.take(minOf(12, remaining))
+                val localLinks = db.serverDao().getAllServersOnce().map { it.rawLink }.toSet()
+                val fresh = supported.filterNot { it in localLinks }
+                val batch = fresh.take(minOf(12, remaining))
                 if (batch.isEmpty()) {
-                    bannerMessage.value = "مخزن هنوز کانفیگ تأییدشده‌ای منتشر نکرده است؛ بعداً دوباره تلاش کنید."
+                    bannerMessage.value = if (supported.isEmpty()) {
+                        "مخزن هنوز کانفیگ تأییدشده‌ای منتشر نکرده است؛ بعداً دوباره تلاش کنید."
+                    } else {
+                        "همهٔ کانفیگ‌های فعلی مخزن قبلاً در فهرست محلی هستند؛ پس از به‌روزرسانی ساعتی دوباره امتحان کنید."
+                    }
                     return@launch
                 }
 
