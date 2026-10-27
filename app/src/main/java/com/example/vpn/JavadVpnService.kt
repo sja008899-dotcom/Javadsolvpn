@@ -234,6 +234,7 @@ class JavadVpnService : VpnService() {
                 val tunnelConfig = TunnelConfig(server = targetServer, dnsServers = dnsList)
                 val paramsResult = DefaultVpnCoreEngine.instance.prepareSession(tunnelConfig)
                 val params = paramsResult.getOrThrow()
+                if (generation != connectionGeneration) return@launch
 
                 val builder = Builder()
                     .setSession("Javadsolvpn - ${targetServer.name}")
