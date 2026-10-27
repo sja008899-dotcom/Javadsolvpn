@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Fetch public share links, validate them with sing-box, and publish only working HTTPS egress."""
+"""Fetch public share links, validate them with sing-box, and publish only working HTTPS egress.
+
+Feature-branch CI seeds a bounded initial snapshot; main-branch hourly runs retest the full stored pool.
+"""
 from __future__ import annotations
 import base64, concurrent.futures, json, os, re, shutil, socket, subprocess, tempfile, time, urllib.parse, urllib.request
 from datetime import datetime, timezone
