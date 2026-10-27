@@ -1,0 +1,8 @@
+{
+  "sources": [
+    {
+      "name": "V2RayAggregator public merged subscription",
+      "url": "https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt"
+    }
+  ]
+}

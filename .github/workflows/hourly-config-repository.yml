@@ -1,0 +1,74 @@
+name: Hourly Config Repository Refresh
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main", "feature/ios-and-hourly-config-repository"]
+    paths:
+      - "scripts/**"
+      - "config-repository/sources.json"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: config-repository-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Fetch, test, rank and publish public configs
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      MAX_CANDIDATES: ${{ (github.event_name == 'pull_request' || github.ref_name == 'feature/ios-and-hourly-config-repository') && '50' || '0' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install curl and download pinned sing-box
+        env:
+          SING_BOX_VERSION: "1.13.14"
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates
+          curl -fsSL "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz" -o /tmp/sing-box.tar.gz
+          mkdir -p /tmp/sing-box
+          tar -xzf /tmp/sing-box.tar.gz -C /tmp/sing-box
+          BIN="$(find /tmp/sing-box -type f -name sing-box | head -n 1)"
+          test -n "$BIN"
+          chmod +x "$BIN"
+          "$BIN" version
+          echo "SING_BOX_BIN=$BIN" >> "$GITHUB_ENV"
+
+      - name: Test config parser and compile Python scripts
+        run: |
+          python -m py_compile scripts/update_config_repository.py scripts/test_config_repository.py ios/patch_upstream.py
+          python -m unittest discover -s scripts -p "test_*.py" -v
+
+      - name: Refresh and verify all known candidates
+        run: python scripts/update_config_repository.py
+
+      - name: Commit verified snapshot
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add config-repository/latest.json config-repository/all.txt config-repository/top20.txt config-repository/top20.md config-repository/last-run.json
+          if git diff --cached --quiet; then
+            echo "Verified snapshot has no changes."
+            exit 0
+          fi
+          git commit -m "chore(config-repository): refresh hourly verified configs"
+          git push

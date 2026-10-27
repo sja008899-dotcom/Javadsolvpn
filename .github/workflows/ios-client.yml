@@ -1,0 +1,105 @@
+name: Build iOS Javadsolvpn Client
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main", "feature/ios-and-hourly-config-repository"]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-client.yml"
+      - ".github/workflows/build-and-release.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    name: Build unsigned iOS app (Xcode + Libbox)
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Checkout Javadsolvpn
+        uses: actions/checkout@v4
+
+      - name: Checkout sing-box Apple client (GPL-3.0-or-later)
+        uses: actions/checkout@v4
+        with:
+          repository: SagerNet/sing-box-for-apple
+          ref: 0d1b59fc5e58c8e6b2239e576e4fd979c502a8fb
+          path: ios-client
+          submodules: recursive
+
+      - name: Checkout sing-box engine
+        uses: actions/checkout@v4
+        with:
+          repository: SagerNet/sing-box
+          ref: a6952ccf6907c18e18917fcb763a433e8e36937b
+          path: sing-box
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: sing-box/go.mod
+          cache-dependency-path: sing-box/go.sum
+
+      - name: Build Libbox for iOS
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/go/bin:$PATH"
+          go install -v github.com/sagernet/gomobile/cmd/gomobile@v0.1.13
+          go install -v github.com/sagernet/gomobile/cmd/gobind@v0.1.13
+          gomobile init
+          go run ./cmd/internal/build_libbox -target apple -platform ios
+          test -d Libbox.xcframework
+          # The Xcode project references Libbox.xcframework at the project root.
+          rm -rf "$GITHUB_WORKSPACE/ios-client/Libbox.xcframework"
+          cp -R Libbox.xcframework "$GITHUB_WORKSPACE/ios-client/Libbox.xcframework"
+
+      - name: Validate Python patch script
+        run: python3 -m py_compile ios/patch_upstream.py
+
+      - name: Apply Javadsolvpn branding and repository button
+        run: python3 ios/patch_upstream.py
+
+      - name: Build unsigned iOS app
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios-client/sing-box.xcodeproj \
+            -scheme SFI \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath ios-client/build/DerivedData \
+            BASE_PACKAGE_IDENTIFIER=com.javadsolvpn.ios \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | tee ios-client/build/xcodebuild.log
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          PRODUCTS="ios-client/build/DerivedData/Build/Products/Release-iphoneos"
+          APP_PATH="$(find "$PRODUCTS" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          mkdir -p ios-client/build/ipa/Payload
+          cp -R "$APP_PATH" ios-client/build/ipa/Payload/Javadsolvpn.app
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Javadsolvpn" ios-client/build/ipa/Payload/Javadsolvpn.app/Info.plist || true
+          cd ios-client/build/ipa
+          zip -qry ../Javadsolvpn-iOS-unsigned.ipa Payload
+          cd "$GITHUB_WORKSPACE"
+          test -s ios-client/build/Javadsolvpn-iOS-unsigned.ipa
+
+      - name: Upload iOS artifact and build log
+        uses: actions/upload-artifact@v4
+        with:
+          name: javadsolvpn-ios-unsigned-ipa
+          path: |
+            ios-client/build/Javadsolvpn-iOS-unsigned.ipa
+            ios-client/build/xcodebuild.log
+          if-no-files-found: error
+          retention-days: 30

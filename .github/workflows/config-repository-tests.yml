@@ -1,0 +1,27 @@
+name: Config Repository Unit Tests
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main", "feature/ios-and-hourly-config-repository"]
+    paths:
+      - "scripts/**"
+      - "ios/patch_upstream.py"
+      - ".github/workflows/config-repository-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  parser-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile scripts
+        run: python -m py_compile scripts/update_config_repository.py scripts/test_config_repository.py ios/patch_upstream.py
+      - name: Run parser regression tests
+        run: python -m unittest discover -s scripts -p "test_*.py" -v

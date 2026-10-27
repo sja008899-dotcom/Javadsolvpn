@@ -97,6 +97,7 @@ fun DiscoveryScreen(
     val sources by viewModel.allSources.collectAsStateWithLifecycle()
     val discoveryProgress by viewModel.discoveryProgress.collectAsStateWithLifecycle()
     val isTestingPing by viewModel.isTestingPing.collectAsStateWithLifecycle()
+    val isFetchingRepository by viewModel.isFetchingRepository.collectAsStateWithLifecycle()
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
     val selectedServer by viewModel.selectedServer.collectAsStateWithLifecycle()
     val vpnStatus by viewModel.vpnStatus.collectAsStateWithLifecycle()
@@ -155,6 +156,8 @@ fun DiscoveryScreen(
                 onPingAll = { viewModel.pingAll() },
                 isTestingPing = isTestingPing,
                 onManualImport = { showImportDialog = true },
+                onDownloadRepository = { viewModel.fetchLatestRepositoryConfigs() },
+                isFetchingRepository = isFetchingRepository,
                 onExportConfigs = {
                     val exported = viewModel.allServers.value
                         .map { it.rawLink.trim() }
@@ -400,6 +403,8 @@ private fun DiscoveryRadarCard(
     onPingAll: () -> Unit,
     isTestingPing: Boolean,
     onManualImport: () -> Unit,
+    onDownloadRepository: () -> Unit,
+    isFetchingRepository: Boolean,
     onExportConfigs: () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "radar")
@@ -595,6 +600,31 @@ private fun DiscoveryRadarCard(
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("وارد کردن دستی", fontSize = 11.sp, color = TextPrimary)
                 }
+            }
+
+            Button(
+                onClick = onDownloadRepository,
+                enabled = !isFetchingRepository,
+                colors = ButtonDefaults.buttonColors(containerColor = CyberNeonGreen),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isFetchingRepository) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = Color.Black,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    if (isFetchingRepository) "در حال دریافت از مخزن…" else "دریافت کانفیگ‌های برتر از مخزن (سهمیه ۱۱۰ روزانه)",
+                    fontSize = 12.sp,
+                    color = Color.Black,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
             OutlinedButton(
