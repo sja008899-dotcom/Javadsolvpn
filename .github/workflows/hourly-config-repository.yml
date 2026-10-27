@@ -48,6 +48,11 @@ jobs:
           "$BIN" version
           echo "SING_BOX_BIN=$BIN" >> "$GITHUB_ENV"
 
+      - name: Test config parser and compile Python scripts
+        run: |
+          python -m py_compile scripts/update_config_repository.py scripts/test_config_repository.py ios/patch_upstream.py
+          python -m unittest discover -s scripts -p "test_*.py" -v
+
       - name: Refresh and verify all known candidates
         run: python scripts/update_config_repository.py
 
