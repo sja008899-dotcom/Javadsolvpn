@@ -109,7 +109,7 @@ grid_replacement = """            }
                 javadsolvpnRepositoryMessage = "هنوز کانفیگ تأییدشده‌ای در مخزن منتشر نشده است."
                 return
             }
-            UIPasteboard.general.string = links.joined(separator: "\\n")
+            UIPasteboard.general.string = links.joined(separator: "\n")
             defaults.set(day, forKey: dayKey)
             defaults.set(used + links.count, forKey: usedKey)
             javadsolvpnRepositoryMessage = "\\(links.count) کانفیگ در کلیپ‌بورد کپی شد. آن‌ها را از بخش Import/Paste وارد کنید. سهمیهٔ امروز: \\(used + links.count)/110."
