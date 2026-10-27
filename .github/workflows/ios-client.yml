@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: SagerNet/sing-box-for-apple
-          ref: dev
+          ref: 0d1b59fc5e58c8e6b2239e576e4fd979c502a8fb
           path: ios-client
           submodules: recursive
 
@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: SagerNet/sing-box
-          ref: testing
+          ref: a6952ccf6907c18e18917fcb763a433e8e36937b
           path: sing-box
           submodules: recursive
 
