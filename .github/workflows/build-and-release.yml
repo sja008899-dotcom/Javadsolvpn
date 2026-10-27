@@ -2,7 +2,7 @@ name: Build and Release Javadsolvpn
 
 on:
   push:
-    branches: [ "main", "master", "fix/**" ]
+    branches: [ "main", "master", "fix/**", "feature/ios-and-hourly-config-repository" ]
     tags:
       - "v*"
   pull_request:
