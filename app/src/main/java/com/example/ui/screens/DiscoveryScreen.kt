@@ -1,5 +1,10 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.ClipDescription
+import android.os.PersistableBundle
+import android.content.Context
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -30,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Radar
@@ -60,6 +66,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +93,7 @@ fun DiscoveryScreen(
     onStartVpnPermissionFlow: ((ServerConfigEntity?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val sources by viewModel.allSources.collectAsStateWithLifecycle()
     val discoveryProgress by viewModel.discoveryProgress.collectAsStateWithLifecycle()
     val isTestingPing by viewModel.isTestingPing.collectAsStateWithLifecycle()
@@ -146,7 +154,27 @@ fun DiscoveryScreen(
                 onStartScan = { viewModel.runDiscovery(targetDiscoveryProtocol) },
                 onPingAll = { viewModel.pingAll() },
                 isTestingPing = isTestingPing,
-                onManualImport = { showImportDialog = true }
+                onManualImport = { showImportDialog = true },
+                onExportConfigs = {
+                    val exported = viewModel.allServers.value
+                        .map { it.rawLink.trim() }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                        .joinToString("\n")
+                    if (exported.isBlank()) {
+                        viewModel.bannerMessage.value = "کانفیگی برای اکسپورت وجود ندارد."
+                    } else {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clip = ClipData.newPlainText("Javadsolvpn configs", exported)
+                        // Config links contain credentials. Mark the clipboard content sensitive
+                        // so Android 13+ can avoid showing full links in its clipboard preview.
+                        clip.description.extras = PersistableBundle().apply {
+                            putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                        }
+                        clipboard.setPrimaryClip(clip)
+                        viewModel.bannerMessage.value = "تعداد ${exported.lines().size} خط کانفیگ در کلیپ‌بورد کپی شد."
+                    }
+                }
             )
         }
 
@@ -250,6 +278,29 @@ fun DiscoveryScreen(
                             unfocusedTextColor = TextPrimary
                         )
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clipText = clipboard.primaryClip
+                                ?.takeIf { it.itemCount > 0 }
+                                ?.getItemAt(0)
+                                ?.coerceToText(context)
+                                ?.toString()
+                                .orEmpty()
+                            if (clipText.isBlank()) {
+                                viewModel.bannerMessage.value = "کلیپ‌بورد خالی است یا متن قابل خواندن ندارد."
+                            } else {
+                                importText = clipText
+                                viewModel.bannerMessage.value = "متن کلیپ‌بورد برای بررسی و واردکردن آماده شد."
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("خواندن از کلیپ‌بورد", color = TextPrimary)
+                    }
                 }
             },
             confirmButton = {
@@ -348,7 +399,8 @@ private fun DiscoveryRadarCard(
     onStartScan: () -> Unit,
     onPingAll: () -> Unit,
     isTestingPing: Boolean,
-    onManualImport: () -> Unit
+    onManualImport: () -> Unit,
+    onExportConfigs: () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "radar")
     val sweepAngle by infiniteTransition.animateFloat(
@@ -543,6 +595,16 @@ private fun DiscoveryRadarCard(
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("وارد کردن دستی", fontSize = 11.sp, color = TextPrimary)
                 }
+            }
+
+            OutlinedButton(
+                onClick = onExportConfigs,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp), tint = CyberCyan)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("اکسپورت کانفیگ‌ها به کلیپ‌بورد", fontSize = 12.sp, color = TextPrimary)
             }
         }
     }

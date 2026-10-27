@@ -142,6 +142,43 @@ interface ServerDao {
         return insertedCount
     }
 
+    /**
+     * Explicit user import may replace a non-favorite, auto-discovered entry when the
+     * 12-slot pool is full. Imported links stay unverified until a real connection test.
+     */
+    @Transaction
+    suspend fun insertManualReplacingAuto(
+        candidate: ServerConfigEntity,
+        limit: Int = ServerLimits.MAX_ACTIVE_CONFIGS
+    ): Boolean {
+        require(limit in 1..ServerLimits.MAX_ACTIVE_CONFIGS) {
+            "Active server limit cannot exceed ${ServerLimits.MAX_ACTIVE_CONFIGS}"
+        }
+        trimToLimit(limit)
+
+        val existing = getAllServersOnce()
+        val fingerprint = ConfigFingerprint.of(candidate)
+        if (existing.any {
+                it.rawLink == candidate.rawLink || ConfigFingerprint.of(it) == fingerprint
+            }) return false
+
+        if (getServerCountNow() >= limit) {
+            // Never evict a favorite or another manually imported config.
+            val victimId = getReplaceableCandidateId() ?: return false
+            deleteServer(victimId)
+        }
+
+        val id = insertServer(
+            candidate.copy(
+                isManual = true,
+                isWorking = false,
+                pingMs = -1L,
+                lastTestedTime = 0L
+            )
+        )
+        return id != -1L
+    }
+
     @Transaction
     suspend fun insertVerifiedReplacingBroken(
         candidate: ServerConfigEntity,

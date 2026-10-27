@@ -199,10 +199,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun importConfig(raw: String) {
         viewModelScope.launch {
             val count = repository.importRawConfig(raw)
-            bannerMessage.value = if (count > 0) {
-                "$count کانفیگ جدید به مخزن فعال اضافه شد (سقف مخزن: ۱۲ سرور)."
+            if (count > 0) {
+                // Select the most recently inserted manual config so it is ready to test.
+                selectedServer.value = db.serverDao().getAllServersOnce()
+                    .filter { it.isManual }
+                    .maxByOrNull { it.id }
+                currentTab.value = 1
+                bannerMessage.value = "$count کانفیگ وارد شد و برای آزمایش انتخاب شد؛ اکنون می‌توانید اتصال را شروع کنید."
             } else {
-                "کانفیگ جدیدی اضافه نشد (ممکن است تکراری باشد، فرمت نامعتبر باشد یا سقف ۱۲ سرور تکمیل باشد)."
+                bannerMessage.value = "کانفیگ جدیدی وارد نشد (ممکن است تکراری/نامعتبر باشد یا همهٔ ۱۲ جایگاه به موارد دستی/علاقه‌مندی اختصاص یافته باشند)."
             }
         }
     }
