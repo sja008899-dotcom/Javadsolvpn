@@ -55,9 +55,9 @@ jobs:
           gomobile init
           go run ./cmd/internal/build_libbox -target apple -platform ios
           test -d Libbox.xcframework
-          rm -rf "$GITHUB_WORKSPACE/ios-client/Frameworks/Libbox.xcframework"
-          mkdir -p "$GITHUB_WORKSPACE/ios-client/Frameworks"
-          cp -R Libbox.xcframework "$GITHUB_WORKSPACE/ios-client/Frameworks/Libbox.xcframework"
+          # The Xcode project references Libbox.xcframework at the project root.
+          rm -rf "$GITHUB_WORKSPACE/ios-client/Libbox.xcframework"
+          cp -R Libbox.xcframework "$GITHUB_WORKSPACE/ios-client/Libbox.xcframework"
 
       - name: Validate Python patch script
         run: python3 -m py_compile ios/patch_upstream.py
