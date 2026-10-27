@@ -241,8 +241,27 @@ def main() -> int:
         candidates.extend(extract_links(previous.read_text(encoding="utf-8", errors="replace")))
     candidates = list(dict.fromkeys(candidates))
     if not candidates:
+        latest_path = STORE / "latest.json"
+        if latest_path.exists():
+            try:
+                previous_meta = json.loads(latest_path.read_text(encoding="utf-8"))
+            except Exception:
+                previous_meta = {"schema_version": 1, "generated_at": None, "count": 0, "configs": []}
+        else:
+            previous_meta = {"schema_version": 1, "generated_at": None, "count": 0, "configs": []}
+        previous_meta.update({
+            "status": "stale-no-currently-verified-configs" if previous_meta.get("count", 0) else "no-verified-configs",
+            "last_check_at": utc_now(),
+            "last_check_status": "no-candidates",
+            "source_errors": source_errors
+        })
+        latest_path.write_text(json.dumps(previous_meta, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+        (STORE / "last-run.json").write_text(json.dumps({
+            "checked_at": utc_now(), "status": "no-candidates", "candidate_count": 0,
+            "source_errors": source_errors
+        }, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
         print(json.dumps({"status": "no_candidates", "source_errors": source_errors}))
-        return 1
+        return 0
     sing_box = os.environ.get("SING_BOX_BIN", "sing-box")
     valid = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
@@ -264,7 +283,7 @@ def main() -> int:
         item["rank"] = rank
     generated = utc_now()
     metadata = {
-        "schema_version": 1, "generated_at": generated, "checked_candidates": len(candidates),
+        "schema_version": 1, "status": "verified", "generated_at": generated, "last_check_at": generated, "last_check_status": "success", "checked_candidates": len(candidates),
         "count": len(valid), "verification": "sing-box config validation + HTTPS request through local SOCKS tunnel",
         "source_errors": source_errors, "configs": valid
     }
