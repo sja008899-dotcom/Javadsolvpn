@@ -7,11 +7,10 @@ on:
   pull_request:
     branches: ["main"]
   push:
-    branches: ["main"]
+    branches: ["main", "feature/ios-and-hourly-config-repository"]
     paths:
-      - "scripts/update_config_repository.py"
+      - "scripts/**"
       - "config-repository/sources.json"
-      - ".github/workflows/hourly-config-repository.yml"
 
 permissions:
   contents: write
@@ -26,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
-      MAX_CANDIDATES: ${{ github.event_name == 'pull_request' && '50' || '0' }}
+      MAX_CANDIDATES: ${{ (github.event_name == 'pull_request' || github.ref_name == 'feature/ios-and-hourly-config-repository') && '50' || '0' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
