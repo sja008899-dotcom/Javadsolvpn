@@ -9,6 +9,7 @@ on:
     paths:
       - "ios/**"
       - ".github/workflows/ios-client.yml"
+      - ".github/workflows/build-and-release.yml"
 
 permissions:
   contents: read
