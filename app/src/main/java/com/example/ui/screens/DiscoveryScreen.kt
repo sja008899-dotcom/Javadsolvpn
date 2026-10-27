@@ -2,6 +2,8 @@ package com.example.ui.screens
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ClipDescription
+import android.os.PersistableBundle
 import android.content.Context
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -163,7 +165,13 @@ fun DiscoveryScreen(
                         viewModel.bannerMessage.value = "کانفیگی برای اکسپورت وجود ندارد."
                     } else {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Javadsolvpn configs", exported))
+                        val clip = ClipData.newPlainText("Javadsolvpn configs", exported)
+                        // Config links contain credentials. Mark the clipboard content sensitive
+                        // so Android 13+ can avoid showing full links in its clipboard preview.
+                        clip.description.extras = PersistableBundle().apply {
+                            putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                        }
+                        clipboard.setPrimaryClip(clip)
                         viewModel.bannerMessage.value = "تعداد ${exported.lines().size} خط کانفیگ در کلیپ‌بورد کپی شد."
                     }
                 }
