@@ -194,6 +194,9 @@ def verify_one(link: str, sing_box: str) -> dict | None:
             check = subprocess.run([sing_box, "check", "-c", str(config_path)],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=8)
             if check.returncode:
+                if int(os.environ.get("MAX_CANDIDATES", "0")) > 0:
+                    detail = check.stderr.decode("utf-8", errors="replace").strip().replace("\\n", " ")[:180]
+                    print(f"CONFIG_REJECTED protocol={outbound.get('type', 'unknown')} endpoint={endpoint} detail={detail}")
                 return None
             proc = subprocess.Popen([sing_box, "run", "-c", str(config_path)],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -214,10 +217,15 @@ def verify_one(link: str, sing_box: str) -> dict | None:
                 if success_ms is not None:
                     break
             if success_ms is None:
+                if int(os.environ.get("MAX_CANDIDATES", "0")) > 0:
+                    print(f"NO_HTTPS_EGRESS protocol={outbound.get('type', 'unknown')} endpoint={endpoint}")
                 return None
         return {"link": link, "endpoint": endpoint, "rtt_ms": success_ms,
                 "verified_at": utc_now(), "verification": "sing-box+HTTPS-through-SOCKS"}
-    except Exception:
+    except Exception as exc:
+        if int(os.environ.get("MAX_CANDIDATES", "0")) > 0:
+            protocol = link.split("://", 1)[0].lower() if "://" in link else "unknown"
+            print(f"PARSE_OR_RUNTIME_REJECTED protocol={protocol} detail={type(exc).__name__}: {str(exc)[:160]}")
         return None
     finally:
         if proc is not None:
