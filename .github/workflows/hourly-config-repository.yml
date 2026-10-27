@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
+  pull_request:
+    branches: ["main"]
   push:
     branches: ["main", "feature/ios-and-hourly-config-repository"]
     paths:
@@ -23,6 +25,8 @@ jobs:
     name: Fetch, test, rank and publish public configs
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    env:
+      MAX_CANDIDATES: ${{ github.event_name == 'pull_request' && '50' || '0' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,6 +61,7 @@ jobs:
         run: python scripts/update_config_repository.py
 
       - name: Commit verified snapshot
+        if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
