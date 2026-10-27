@@ -59,7 +59,7 @@ def query_map(query: str) -> dict[str, str]:
 def common_config(outbound: dict, port: int) -> dict:
     return {
         "log": {"level": "error"},
-        "dns": {"servers": [{"tag": "system", "address": "local"}], "final": "system"},
+        "dns": {"servers": [{"tag": "system", "type": "local"}], "final": "system"},
         "inbounds": [{"type": "socks", "tag": "local-socks", "listen": "127.0.0.1", "listen_port": port}],
         "outbounds": [outbound, {"type": "direct", "tag": "direct"}, {"type": "block", "tag": "block"}],
         "route": {"final": outbound["tag"], "auto_detect_interface": True}
