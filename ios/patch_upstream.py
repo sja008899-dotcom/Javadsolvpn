@@ -95,6 +95,19 @@ grid_replacement = """            }
         javadsolvpnRepositoryLoading = true
         defer { javadsolvpnRepositoryLoading = false }
         do {
+            let metadataURL = URL(string: "https://raw.githubusercontent.com/sja008899-dotcom/Javadsolvpn/main/config-repository/latest.json")!
+            let (metadataData, metadataResponse) = try await URLSession.shared.data(from: metadataURL)
+            guard (metadataResponse as? HTTPURLResponse)?.statusCode == 200,
+                  let metadata = try JSONSerialization.jsonObject(with: metadataData) as? [String: Any],
+                  metadata["status"] as? String == "verified",
+                  let generatedAt = metadata["generated_at"] as? String,
+                  let verifiedDate = ISO8601DateFormatter().date(from: generatedAt),
+                  Date().timeIntervalSince(verifiedDate) >= 0,
+                  Date().timeIntervalSince(verifiedDate) <= 2 * 60 * 60
+            else {
+                javadsolvpnRepositoryMessage = "مخزن در دو ساعت اخیر کانفیگ معتبر تأیید نکرده است؛ دریافت کانفیگ‌های کهنه متوقف شد."
+                return
+            }
             let url = URL(string: "https://raw.githubusercontent.com/sja008899-dotcom/Javadsolvpn/main/config-repository/top20.txt")!
             let (data, response) = try await URLSession.shared.data(from: url)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else {
