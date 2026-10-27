@@ -242,8 +242,9 @@ def main() -> int:
     candidates = list(dict.fromkeys(candidates))
     test_limit = int(os.environ.get("MAX_CANDIDATES", "0"))
     if test_limit > 0:
-        candidates = candidates[:test_limit]
-        print(f"Smoke-test mode: checking at most {test_limit} candidates.")
+        if len(candidates) > test_limit:
+            candidates = [candidates[int(i * len(candidates) / test_limit)] for i in range(test_limit)]
+        print(f"Smoke-test mode: checking a spread sample of at most {test_limit} candidates.")
     if not candidates:
         latest_path = STORE / "latest.json"
         if latest_path.exists():
