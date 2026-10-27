@@ -52,6 +52,9 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/ios-client/Frameworks"
           cp -R Libbox.xcframework "$GITHUB_WORKSPACE/ios-client/Frameworks/Libbox.xcframework"
 
+      - name: Validate Python patch script
+        run: python3 -m py_compile ios/patch_upstream.py
+
       - name: Apply Javadsolvpn branding and repository button
         run: python3 ios/patch_upstream.py
 
