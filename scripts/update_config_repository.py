@@ -255,11 +255,11 @@ def main() -> int:
             "last_check_status": "no-candidates",
             "source_errors": source_errors
         })
-        latest_path.write_text(json.dumps(previous_meta, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+        latest_path.write_text(json.dumps(previous_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         (STORE / "last-run.json").write_text(json.dumps({
             "checked_at": utc_now(), "status": "no-candidates", "candidate_count": 0,
             "source_errors": source_errors
-        }, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+        }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(json.dumps({"status": "no_candidates", "source_errors": source_errors}))
         return 0
     sing_box = os.environ.get("SING_BOX_BIN", "sing-box")
