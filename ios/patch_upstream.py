@@ -66,7 +66,7 @@ grid_replacement = """            }
                     } else {
                         Image(systemName: "arrow.down.to.line")
                     }
-                    Text(javadsolvpnRepositoryLoading ? "در حال دریافت…" : "دریافت ۲۰ کانفیگ برتر")
+                    Text(javadsolvpnRepositoryLoading ? "در حال دریافت…" : "کپی ۲۰ کانفیگ بعدی از مخزن")
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -108,7 +108,7 @@ grid_replacement = """            }
                 javadsolvpnRepositoryMessage = "مخزن در دو ساعت اخیر کانفیگ معتبر تأیید نکرده است؛ دریافت کانفیگ‌های کهنه متوقف شد."
                 return
             }
-            let url = URL(string: "https://raw.githubusercontent.com/sja008899-dotcom/Javadsolvpn/main/config-repository/top20.txt")!
+            let url = URL(string: "https://raw.githubusercontent.com/sja008899-dotcom/Javadsolvpn/main/config-repository/all.txt")!
             let (data, response) = try await URLSession.shared.data(from: url)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else {
                 throw URLError(.badServerResponse)
@@ -117,15 +117,19 @@ grid_replacement = """            }
                 .split(whereSeparator: \\.isNewline)
                 .map(String.init)
                 .filter { $0.hasPrefix("vless://") || $0.hasPrefix("vmess://") || $0.hasPrefix("trojan://") || $0.hasPrefix("ss://") }
-            let links = Array(lines.prefix(min(20, remaining)))
-            guard !links.isEmpty else {
+            guard !lines.isEmpty else {
                 javadsolvpnRepositoryMessage = "هنوز کانفیگ تأییدشده‌ای در مخزن منتشر نشده است."
                 return
             }
+            let offsetKey = "javadsolvpn.repository.offset"
+            let start = defaults.integer(forKey: offsetKey) % lines.count
+            let amount = min(20, min(remaining, lines.count))
+            let links = (0..<amount).map { lines[(start + $0) % lines.count] }
             UIPasteboard.general.string = links.joined(separator: "\n")
             defaults.set(day, forKey: dayKey)
             defaults.set(used + links.count, forKey: usedKey)
-            javadsolvpnRepositoryMessage = "\\(links.count) کانفیگ در کلیپ‌بورد کپی شد. آن‌ها را از بخش Import/Paste وارد کنید. سهمیهٔ امروز: \\(used + links.count)/110."
+            defaults.set((start + links.count) % lines.count, forKey: offsetKey)
+            javadsolvpnRepositoryMessage = "\\(links.count) کانفیگ بعدی از رتبه‌بندی در کلیپ‌بورد کپی شد. آن‌ها را از بخش Import/Paste وارد کنید. سهمیهٔ امروز: \\(used + links.count)/110."
         } catch {
             javadsolvpnRepositoryMessage = "دریافت از مخزن ناموفق بود: \\(error.localizedDescription)"
         }
