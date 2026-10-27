@@ -51,9 +51,23 @@ class VpnRepository(private val db: AppDatabase) {
     }
 
     suspend fun importRawConfig(raw: String): Int = withContext(Dispatchers.IO) {
-        val parsed = ConfigParser.parsePayload(raw, "Manual Import")
-        val markedManual = parsed.map { it.copy(isManual = true, isWorking = false, pingMs = -1L) }
-        db.serverDao().insertCapped(markedManual, ServerLimits.MAX_ACTIVE_CONFIGS)
+        // Keep clipboard imports bounded too: one paste must never expand the pool past 12.
+        val markedManual = ConfigParser.parsePayload(raw, "Manual Import")
+            .take(ServerLimits.MAX_ACTIVE_CONFIGS)
+            .map { it.copy(isManual = true, isWorking = false, pingMs = -1L) }
+
+        var inserted = db.serverDao().insertCapped(markedManual, ServerLimits.MAX_ACTIVE_CONFIGS)
+        if (inserted < markedManual.size) {
+            // If the pool is full, let the user's explicit import replace auto-discovered
+            // non-favorite entries, but never silently remove favorites/manual entries.
+            for (candidate in markedManual) {
+                if (inserted >= markedManual.size) break
+                if (db.serverDao().insertManualReplacingAuto(candidate, ServerLimits.MAX_ACTIVE_CONFIGS)) {
+                    inserted++
+                }
+            }
+        }
+        inserted
     }
 
     suspend fun addSource(name: String, url: String) = withContext(Dispatchers.IO) {
