@@ -261,7 +261,7 @@ class ServerLimitsAndDeduplicationTest {
         assertTrue(storedManual!!.isManual)
         assertFalse("Imported configs must remain unverified until a real connection test", storedManual.isWorking)
         assertEquals(-1L, storedManual.pingMs)
-        assertNull(db.serverDao().getServerById(2L).takeIf { it?.host == "auto-1.example.com" })
+        assertNull(db.serverDao().getAllServersOnce().firstOrNull { it.host == "auto-1.example.com" })
     }
 
     @Test
