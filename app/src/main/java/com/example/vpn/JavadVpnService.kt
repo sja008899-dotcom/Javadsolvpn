@@ -325,7 +325,7 @@ class JavadVpnService : VpnService() {
                         try { vpnInterface?.close() } catch (_: Exception) {}
                         vpnInterface = null
                         DefaultVpnCoreEngine.instance.terminateSession("آزمون اینترنت ناموفق بود")
-                        retryNextServer(db, dns, targetServer.id)
+                        retryNextServer(db, dns, targetServer.id, generation)
                     }
                 }
 
@@ -345,8 +345,12 @@ class JavadVpnService : VpnService() {
     private suspend fun retryNextServer(
         db: AppDatabase,
         dns: String,
-        failedServerId: Long
+        failedServerId: Long,
+        generation: Long
     ) {
+        // Never let a stale failure callback initiate a new session.
+        if (generation != connectionGeneration) return
+
         // Hard session-wide cap: never attempt more than 12 distinct server IDs.
         if (triedServersInSession.size >= 12) {
             _vpnStatus.value = VpnStatus.ERROR
@@ -366,7 +370,7 @@ class JavadVpnService : VpnService() {
             _vpnStatus.value = VpnStatus.CONNECTING
             _errorMessage.value = "این سرور پاسخ نداد؛ در حال آزمایش سرور جایگزین (" + triedServersInSession.size + "/12)"
             _activeServer.value = null
-            initiateConnection(next.id, dns, connectionGeneration)
+            initiateConnection(next.id, dns, generation)
         } else {
             _vpnStatus.value = VpnStatus.ERROR
             _errorMessage.value = "۱۲ تلاش یا همهٔ کانفیگ‌های موجود آزمایش شدند؛ اتصال واقعی برقرار نشد."
