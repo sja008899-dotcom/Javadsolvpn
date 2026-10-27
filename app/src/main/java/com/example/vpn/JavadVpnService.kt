@@ -59,6 +59,8 @@ class JavadVpnService : VpnService() {
     private var lastStatsSampleTime: Long = 0L
 
     private val triedServersInSession = mutableSetOf<Long>()
+    // Invalidates asynchronous health checks when the user disconnects or starts a new session.
+    @Volatile private var connectionGeneration: Long = 0L
 
     private val verificationClient = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -158,8 +160,9 @@ class JavadVpnService : VpnService() {
             ACTION_CONNECT -> {
                 val serverId = intent.getLongExtra(EXTRA_SERVER_ID, -1L)
                 val preferredDns = intent.getStringExtra(EXTRA_DNS) ?: "1.1.1.1"
+                connectionGeneration += 1
                 triedServersInSession.clear()
-                initiateConnection(serverId, preferredDns)
+                initiateConnection(serverId, preferredDns, connectionGeneration)
             }
             ACTION_DISCONNECT -> {
                 terminateVpn("قطع اتصال توسط کاربر")
@@ -183,17 +186,20 @@ class JavadVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
-    private fun initiateConnection(serverId: Long, dns: String) {
+    private fun initiateConnection(serverId: Long, dns: String, generation: Long = connectionGeneration) {
         _vpnStatus.value = VpnStatus.CONNECTING
         _errorMessage.value = null
         startForeground(NOTIFICATION_ID, buildNotification("در حال اتصال…", "آماده‌سازی هسته شبکه"))
 
         serviceScope.launch {
+            if (generation != connectionGeneration) return@launch
             val db = AppDatabase.getInstance(applicationContext)
             var targetServer = if (serverId > 0) db.serverDao().getServerById(serverId) else null
             if (targetServer == null) {
                 targetServer = db.serverDao().getBestCandidate()
             }
+
+            if (generation != connectionGeneration) return@launch
 
             if (targetServer == null) {
                 _vpnStatus.value = VpnStatus.ERROR
@@ -215,6 +221,8 @@ class JavadVpnService : VpnService() {
 
                 // 2. Prepare Xray Core JSON
                 val configJson = CoreConfigBuilder.buildConfigJson(targetServer)
+
+                if (generation != connectionGeneration) return@launch
 
                 // 3. Prepare parameters for Android VpnService Builder
                 val dnsList = when (dns) {
@@ -296,7 +304,9 @@ class JavadVpnService : VpnService() {
                 // 5. Asynchronous background live health check (does not abruptly kill user's VPN if mobile latency is high)
                 serviceScope.launch {
                     delay(1500)
+                    if (generation != connectionGeneration) return@launch
                     val isAlive = verifyLiveInternet()
+                    if (generation != connectionGeneration) return@launch
                     if (isAlive) {
                         db.serverDao().recordSuccess(targetServer.id)
                         startForeground(
@@ -319,6 +329,7 @@ class JavadVpnService : VpnService() {
                 }
 
             } catch (e: Exception) {
+                if (generation != connectionGeneration) return@launch
                 stopCore()
                 try { vpnInterface?.close() } catch (_: Exception) {}
                 vpnInterface = null
@@ -354,7 +365,7 @@ class JavadVpnService : VpnService() {
             _vpnStatus.value = VpnStatus.CONNECTING
             _errorMessage.value = "این سرور پاسخ نداد؛ در حال آزمایش سرور جایگزین (" + triedServersInSession.size + "/12)"
             _activeServer.value = null
-            initiateConnection(next.id, dns)
+            initiateConnection(next.id, dns, connectionGeneration)
         } else {
             _vpnStatus.value = VpnStatus.ERROR
             _errorMessage.value = "۱۲ تلاش یا همهٔ کانفیگ‌های موجود آزمایش شدند؛ اتصال واقعی برقرار نشد."
@@ -493,6 +504,8 @@ class JavadVpnService : VpnService() {
     }
 
     private fun terminateVpn(reason: String) {
+        // Invalidate any in-flight health check/failover before tearing down the tunnel.
+        connectionGeneration += 1
         DefaultVpnCoreEngine.instance.terminateSession(reason)
         stopCore()
 
