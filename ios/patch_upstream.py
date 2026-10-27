@@ -122,7 +122,7 @@ grid_replacement = """            }
                 return
             }
             let offsetKey = "javadsolvpn.repository.offset"
-            let start = defaults.integer(forKey: offsetKey) % lines.count
+            let start = isSameDay ? defaults.integer(forKey: offsetKey) % lines.count : 0
             let amount = min(20, min(remaining, lines.count))
             let links = (0..<amount).map { lines[(start + $0) % lines.count] }
             UIPasteboard.general.string = links.joined(separator: "\n")
