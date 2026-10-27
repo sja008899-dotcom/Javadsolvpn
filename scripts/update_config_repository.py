@@ -240,6 +240,10 @@ def main() -> int:
     if previous.exists():
         candidates.extend(extract_links(previous.read_text(encoding="utf-8", errors="replace")))
     candidates = list(dict.fromkeys(candidates))
+    test_limit = int(os.environ.get("MAX_CANDIDATES", "0"))
+    if test_limit > 0:
+        candidates = candidates[:test_limit]
+        print(f"Smoke-test mode: checking at most {test_limit} candidates.")
     if not candidates:
         latest_path = STORE / "latest.json"
         if latest_path.exists():
@@ -261,7 +265,7 @@ def main() -> int:
             "source_errors": source_errors
         }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(json.dumps({"status": "no_candidates", "source_errors": source_errors}))
-        return 0
+        return 1 if test_limit > 0 else 0
     sing_box = os.environ.get("SING_BOX_BIN", "sing-box")
     valid = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
