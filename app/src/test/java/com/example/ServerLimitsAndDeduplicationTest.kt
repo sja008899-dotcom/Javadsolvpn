@@ -206,6 +206,65 @@ class ServerLimitsAndDeduplicationTest {
     }
 
     @Test
+    fun manualImport_canReplaceAutoEntryWithoutExceedingTwelveOrRemovingFavorite() = runBlocking {
+        // One favorite must survive; the other eleven are replaceable auto-discovered entries.
+        db.serverDao().insertServer(
+            ServerConfigEntity(
+                name = "Favorite",
+                protocol = "vless",
+                host = "favorite.example.com",
+                port = 443,
+                rawLink = "vless://favorite@favorite.example.com:443",
+                uuidOrPassword = "favorite",
+                isFavorite = true,
+                isManual = false,
+                isWorking = true,
+                pingMs = 30L
+            )
+        )
+        for (i in 1..11) {
+            db.serverDao().insertServer(
+                ServerConfigEntity(
+                    name = "Auto $i",
+                    protocol = "vless",
+                    host = "auto-$i.example.com",
+                    port = 443,
+                    rawLink = "vless://auto-$i@auto-$i.example.com:443",
+                    uuidOrPassword = "auto-$i",
+                    isFavorite = false,
+                    isManual = false,
+                    isWorking = i != 1,
+                    pingMs = if (i == 1) -1L else 40L + i
+                )
+            )
+        }
+        assertEquals(12, db.serverDao().getServerCountNow())
+
+        val imported = ServerConfigEntity(
+            name = "Imported manual",
+            protocol = "trojan",
+            host = "manual.example.com",
+            port = 443,
+            rawLink = "trojan://secret@manual.example.com:443",
+            uuidOrPassword = "secret",
+            isManual = true,
+            isWorking = true,
+            pingMs = 10L
+        )
+        val inserted = db.serverDao().insertManualReplacingAuto(imported, ServerLimits.MAX_ACTIVE_CONFIGS)
+
+        assertTrue(inserted)
+        assertEquals(12, db.serverDao().getServerCountNow())
+        assertNotNull(db.serverDao().getAllServersOnce().firstOrNull { it.host == "favorite.example.com" })
+        val storedManual = db.serverDao().getAllServersOnce().firstOrNull { it.host == "manual.example.com" }
+        assertNotNull(storedManual)
+        assertTrue(storedManual!!.isManual)
+        assertFalse("Imported configs must remain unverified until a real connection test", storedManual.isWorking)
+        assertEquals(-1L, storedManual.pingMs)
+        assertNull(db.serverDao().getServerById(2L).takeIf { it?.host == "auto-1.example.com" })
+    }
+
+    @Test
     fun preloadedConfigs_containsExactlyTwelveServers() {
         assertEquals(12, com.example.data.local.PreloadedConfigs.DEFAULT_SERVERS.size)
         assertEquals(12, ServerLimits.MAX_ACTIVE_CONFIGS)
