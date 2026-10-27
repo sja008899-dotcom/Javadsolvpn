@@ -49,6 +49,10 @@ jobs:
         working-directory: sing-box
         run: |
           set -euo pipefail
+          export PATH="$HOME/go/bin:$PATH"
+          go install -v github.com/sagernet/gomobile/cmd/gomobile@v0.1.13
+          go install -v github.com/sagernet/gomobile/cmd/gobind@v0.1.13
+          gomobile init
           go run ./cmd/internal/build_libbox -target apple -platform ios
           test -d Libbox.xcframework
           rm -rf "$GITHUB_WORKSPACE/ios-client/Frameworks/Libbox.xcframework"
