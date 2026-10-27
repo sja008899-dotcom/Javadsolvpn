@@ -21,6 +21,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.net.HttpURLConnection
 import java.net.URL
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.TimeZone
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -218,7 +221,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                bannerMessage.value = "در حال دریافت تازه‌ترین کانفیگ‌های رتبه‌بندی‌شده…"
+                bannerMessage.value = "در حال بررسی تازگی مخزن و دریافت کانفیگ‌های رتبه‌بندی‌شده…"
+                val metadataConnection = (URL("https://raw.githubusercontent.com/sja008899-dotcom/Javadsolvpn/main/config-repository/latest.json").openConnection() as HttpURLConnection)
+                metadataConnection.requestMethod = "GET"
+                metadataConnection.connectTimeout = 10000
+                metadataConnection.readTimeout = 10000
+                metadataConnection.setRequestProperty("User-Agent", "Javadsolvpn-Android")
+                val metadataText = try {
+                    if (metadataConnection.responseCode !in 200..299) throw IllegalStateException("مخزن در دسترس نیست")
+                    metadataConnection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                } finally {
+                    metadataConnection.disconnect()
+                }
+                val metadata = JSONObject(metadataText)
+                val generatedAt = metadata.optString("generated_at")
+                val parsedAt = try {
+                    SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                        timeZone = TimeZone.getTimeZone("UTC")
+                        isLenient = false
+                    }.parse(generatedAt)
+                } catch (_: Exception) { null }
+                val ageMs = parsedAt?.let { System.currentTimeMillis() - it.time } ?: Long.MAX_VALUE
+                if (metadata.optString("status") != "verified" || ageMs < 0L || ageMs > 2 * 60 * 60 * 1000L) {
+                    bannerMessage.value = "مخزن در دو ساعت اخیر کانفیگ معتبر تأیید نکرده است؛ برای جلوگیری از دریافت کانفیگ‌های کهنه، دانلود متوقف شد."
+                    return@launch
+                }
+
                 val connection = (URL("https://raw.githubusercontent.com/sja008899-dotcom/Javadsolvpn/main/config-repository/top20.txt").openConnection() as HttpURLConnection)
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 10000
