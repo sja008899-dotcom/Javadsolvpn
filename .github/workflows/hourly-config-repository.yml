@@ -7,7 +7,7 @@ on:
   pull_request:
     branches: ["main"]
   push:
-    branches: ["main", "feature/ios-and-hourly-config-repository"]
+    branches: ["main"]
     paths:
       - "scripts/update_config_repository.py"
       - "config-repository/sources.json"
