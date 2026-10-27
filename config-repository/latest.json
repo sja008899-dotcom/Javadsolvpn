@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "generated_at": null,
+  "verification": "sing-box config validation + HTTPS request through tunnel",
+  "count": 0,
+  "configs": [],
+  "status": "not-yet-verified"
+}
