@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
+  push:
+    branches: ["main", "feature/ios-and-hourly-config-repository"]
+    paths:
+      - "scripts/update_config_repository.py"
+      - "config-repository/sources.json"
+      - ".github/workflows/hourly-config-repository.yml"
 
 permissions:
   contents: write
@@ -50,7 +56,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add config-repository/latest.json config-repository/all.txt config-repository/top20.txt config-repository/last-run.json
+          git add config-repository/latest.json config-repository/all.txt config-repository/top20.txt config-repository/top20.md config-repository/last-run.json
           if git diff --cached --quiet; then
             echo "Verified snapshot has no changes."
             exit 0
