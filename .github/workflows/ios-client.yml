@@ -75,7 +75,9 @@ jobs:
           set -euo pipefail
           xcodebuild -version
           swift --version
-          swift --version | grep -E 'Swift version 6[.]2([ .]|$)'
+          SWIFT_VERSION="$(swift --version | awk '/Apple Swift version/ {print $4}')"
+          echo "Detected Swift ${SWIFT_VERSION}"
+          echo "${SWIFT_VERSION}" | grep -E '^6\.(2|3)(\..*)?$'
 
       - name: Build unsigned iOS app
         run: |
