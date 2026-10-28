@@ -15,6 +15,7 @@ MAX_SOURCE_BYTES = 12 * 1024 * 1024
 WORKERS = 12
 CANDIDATE_TIMEOUT = 22
 TEST_URLS = ("https://www.gstatic.com/generate_204", "https://cp.cloudflare.com/generate_204")
+MAX_PUBLISHED_CONFIGS = 100
 SCHEMES = ("vless://", "vmess://", "trojan://", "ss://")
 
 def utc_now() -> str:
@@ -295,12 +296,14 @@ def main() -> int:
         print("No candidate passed the end-to-end HTTPS tunnel test; preserving previous snapshot.")
         return 1
     valid.sort(key=lambda x: (x["rtt_ms"], x["endpoint"]))
+    # The public repository is deliberately bounded even when feeds contain thousands of links.
+    valid = valid[:MAX_PUBLISHED_CONFIGS]
     for rank, item in enumerate(valid, 1):
         item["rank"] = rank
     generated = utc_now()
     metadata = {
         "schema_version": 1, "status": "verified", "generated_at": generated, "last_check_at": generated, "last_check_status": "success", "checked_candidates": len(candidates),
-        "count": len(valid), "verification": "sing-box config validation + HTTPS request through local SOCKS tunnel",
+        "count": len(valid), "max_published_configs": MAX_PUBLISHED_CONFIGS, "verification": "sing-box config validation + HTTPS request through local SOCKS tunnel",
         "source_errors": source_errors, "configs": valid
     }
     (STORE / "latest.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
