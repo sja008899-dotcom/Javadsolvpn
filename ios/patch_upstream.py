@@ -86,7 +86,8 @@ grid_replacement = """            }
         let day = ISO8601DateFormatter().string(from: Calendar.current.startOfDay(for: Date()))
         let dayKey = "javadsolvpn.repository.day"
         let usedKey = "javadsolvpn.repository.used"
-        let used = defaults.string(forKey: dayKey) == day ? defaults.integer(forKey: usedKey) : 0
+        let isSameDay = defaults.string(forKey: dayKey) == day
+        let used = isSameDay ? defaults.integer(forKey: usedKey) : 0
         let remaining = max(0, 110 - used)
         guard remaining > 0 else {
             javadsolvpnRepositoryMessage = "سهمیهٔ روزانهٔ ۱۱۰ کانفیگ تمام شده است."
