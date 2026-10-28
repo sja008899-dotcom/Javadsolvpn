@@ -43,6 +43,22 @@ def extract_links(text: str) -> list[str]:
                 links.append(line)
     return list(dict.fromkeys(links))
 
+def evenly_sample(items: list[str], limit: int) -> list[str]:
+    if limit <= 0 or len(items) <= limit:
+        return items
+    return [items[int(i * len(items) / limit)] for i in range(limit)]
+
+def select_candidates(source_candidates: list[str], previous_candidates: list[str],
+                      test_limit: int = 0, source_limit: int = 250) -> list[str]:
+    source_candidates = list(dict.fromkeys(source_candidates))
+    previous_candidates = list(dict.fromkeys(previous_candidates))
+    if test_limit > 0:
+        combined = list(dict.fromkeys(source_candidates + previous_candidates))
+        return evenly_sample(combined, test_limit)
+    # Re-test every published entry each hour, while sampling new public feed links
+    # so a large feed cannot keep the hourly job busy for several hours.
+    return list(dict.fromkeys(evenly_sample(source_candidates, source_limit) + previous_candidates))
+
 def get_text(url: str) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": "Javadsolvpn-ConfigWorker/1.0"})
     with urllib.request.urlopen(req, timeout=20) as response:
@@ -240,23 +256,25 @@ def verify_one(link: str, sing_box: str) -> dict | None:
 def main() -> int:
     STORE.mkdir(parents=True, exist_ok=True)
     sources = json.loads(SOURCES_FILE.read_text(encoding="utf-8")).get("sources", [])
-    candidates: list[str] = []
+    source_candidates: list[str] = []
     source_errors = []
     for source in sources:
         try:
-            candidates.extend(extract_links(get_text(source["url"])))
+            source_candidates.extend(extract_links(get_text(source["url"])))
         except Exception as exc:
             source_errors.append({"source": source.get("name", source.get("url", "unknown")), "error": str(exc)[:160]})
-    # Re-test previous verified entries too, so old links are removed when their tunnel stops working.
+    # Always re-test the entire published snapshot; only new source links are sampled.
+    previous_candidates: list[str] = []
     previous = STORE / "all.txt"
     if previous.exists():
-        candidates.extend(extract_links(previous.read_text(encoding="utf-8", errors="replace")))
-    candidates = list(dict.fromkeys(candidates))
+        previous_candidates = extract_links(previous.read_text(encoding="utf-8", errors="replace"))
     test_limit = int(os.environ.get("MAX_CANDIDATES", "0"))
+    source_limit = int(os.environ.get("MAX_SOURCE_CANDIDATES", "250"))
+    candidates = select_candidates(source_candidates, previous_candidates, test_limit, source_limit)
     if test_limit > 0:
-        if len(candidates) > test_limit:
-            candidates = [candidates[int(i * len(candidates) / test_limit)] for i in range(test_limit)]
         print(f"Smoke-test mode: checking a spread sample of at most {test_limit} candidates.")
+    else:
+        print(f"Hourly mode: testing all {len(previous_candidates)} published links plus at most {source_limit} sampled source links.")
     if not candidates:
         latest_path = STORE / "latest.json"
         if latest_path.exists():
