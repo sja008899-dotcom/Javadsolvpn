@@ -3,5 +3,7 @@
   "status": "success",
   "candidate_count": 4416,
   "verified_count": 137,
-  "source_errors": []
+  "source_errors": [],
+  "published_count": 100,
+  "max_published_configs": 100
 }
