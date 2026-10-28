@@ -1,9 +1,7 @@
 {
-  "checked_at": "2026-10-28T10:43:37Z",
+  "checked_at": "2026-10-28T16:44:11Z",
   "status": "success",
-  "candidate_count": 4416,
-  "verified_count": 137,
-  "source_errors": [],
-  "published_count": 100,
-  "max_published_configs": 100
+  "candidate_count": 344,
+  "verified_count": 100,
+  "source_errors": []
 }
