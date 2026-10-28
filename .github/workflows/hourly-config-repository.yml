@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 350
     env:
       MAX_CANDIDATES: ${{ (github.event_name == 'pull_request' || github.ref_name == 'feature/ios-and-hourly-config-repository') && '50' || '0' }}
+      MAX_SOURCE_CANDIDATES: '250'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
