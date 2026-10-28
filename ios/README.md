@@ -10,3 +10,8 @@ This folder contains a reproducible build patch for the native iOS client and a 
 - The iOS repository button copies ranked links; use the upstream client's profile import/paste UI to add them. Android imports them directly into its local 12-entry pool.
 
 Build it from GitHub Actions: **Build iOS Javadsolvpn Client**. The workflow installs gomobile/gobind explicitly before generating Libbox and pins the upstream source revisions. A successful compile does not mean Apple has approved the app or that a particular server works on a device.
+
+
+## CI verification
+
+The current iOS build workflow is re-run on pull requests so the unsigned IPA is only reported as available after Xcode successfully builds and packages it. The workflow uploads both the IPA and the Xcode build log as artifacts.
