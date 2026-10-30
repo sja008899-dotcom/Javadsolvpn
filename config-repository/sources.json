@@ -4,5 +4,6 @@
       "name": "V2RayAggregator public merged subscription (hourly verified pool)",
       "url": "https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt"
     }
-  ]
+  ],
+  "worker_note": "Scheduled refresh every 30 minutes; each run re-tests the entire published pool and samples new public source links."
 }
