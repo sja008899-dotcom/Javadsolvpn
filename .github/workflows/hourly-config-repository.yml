@@ -2,7 +2,7 @@ name: Hourly Config Repository Refresh
 
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "17,47 * * * *"
   workflow_dispatch:
   pull_request:
     branches: ["main"]
