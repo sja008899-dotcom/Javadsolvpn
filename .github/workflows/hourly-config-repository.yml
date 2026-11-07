@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: config-repository-refresh
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   refresh:
@@ -72,6 +72,24 @@ jobs:
             exit 0
           fi
           git commit -m "chore(config-repository): refresh hourly verified configs"
-          git fetch origin "${GITHUB_REF_NAME:-main}"
-          git rebase "origin/${GITHUB_REF_NAME:-main}"
-          git push origin "HEAD:${GITHUB_REF_NAME:-main}"
+
+          branch="${GITHUB_REF_NAME:-main}"
+          git fetch origin "$branch"
+          git rebase "origin/$branch"
+
+          # A human or another workflow may update the branch between fetch and
+          # push. Rebase on the newest tip and retry a few times rather than
+          # failing immediately on the normal non-fast-forward race.
+          for attempt in 1 2 3 4 5; do
+            if git push origin "HEAD:$branch"; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "Push failed after $attempt attempts; giving up." >&2
+              exit 1
+            fi
+            echo "Push attempt $attempt failed; fetching and rebasing before retrying."
+            sleep "$((attempt * 2))"
+            git fetch origin "$branch"
+            git rebase "origin/$branch"
+          done
