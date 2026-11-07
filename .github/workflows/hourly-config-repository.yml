@@ -9,6 +9,7 @@ on:
   push:
     branches: ["main", "feature/ios-and-hourly-config-repository"]
     paths:
+      - ".github/workflows/hourly-config-repository.yml"
       - "scripts/**"
       - "config-repository/sources.json"
 
