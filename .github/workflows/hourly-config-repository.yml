@@ -72,4 +72,6 @@ jobs:
             exit 0
           fi
           git commit -m "chore(config-repository): refresh hourly verified configs"
-          git push
+          git fetch origin "${GITHUB_REF_NAME:-main}"
+          git rebase "origin/${GITHUB_REF_NAME:-main}"
+          git push origin "HEAD:${GITHUB_REF_NAME:-main}"
